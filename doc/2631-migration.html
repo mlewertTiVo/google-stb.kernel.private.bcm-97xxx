@@ -1,0 +1,902 @@
+<html>
+<head><title>Linux 2.6.3x kernel migration</title></head>
+<body>
+<center>
+  <h1>Linux 2.6.3x kernel migration</h1>
+  <b>Broadcom Application Note</b><p>
+</center>
+
+<!-- TOC START -->
+<a href="#1__Introduction">1. Introduction</a><br>
+<a href="#2__Linux_kernel_changes">2. Linux kernel changes</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#2_1__Feature_set">2.1. Feature set</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#2_2__Kernel_customization">2.2. Kernel customization</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#2_3__Other_changes">2.3. Other changes</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#2_4__Useful_command_line_options">2.4. Useful command line options</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#2_5__CFE_dependencies">2.5. CFE dependencies</a><br>
+<a href="#3__2_6_3x_uclinux_rootfs_changes_from_2_6_18">3. 2.6.3x uclinux-rootfs changes from 2.6.18</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#3_1__rootfs_contents">3.1. rootfs contents</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#3_2__New_rootfs_features">3.2. New rootfs features</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#3_3__Build_system_changes">3.3. Build system changes</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#3_3_1__Supported_builds">3.3.1. Supported builds</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#3_3_2__Basic_build_system_usage__using_the_default_settings_">3.3.2. Basic build system usage (using the default settings)</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#3_3_3__Customization">3.3.3. Customization</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#3_3_4__Adding_programs_to_the_rootfs">3.3.4. Adding programs to the rootfs</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#3_3_5__Adding_kernel_modules_to_the_rootfs">3.3.5. Adding kernel modules to the rootfs</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#3_3_6__ADVANCED_TOPIC__Build_system_internals">3.3.6. ADVANCED TOPIC: Build system internals</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#3_4__stbutil_changes">3.4. stbutil changes</a><br>
+<!-- TOC END -->
+
+<h2><a name="1__Introduction">1. Introduction</a></h2><p>
+
+In August 2009, Broadcom began phasing out the STB Linux 2.6.18 kernel in
+favor of a new kernel based on linux-mips.org 2.6.3x.  Numerous
+improvements have been made to both the kernel and to the bundled rootfs.
+This document provides information on migrating from the 2.6.18 STB kernel
+to 2.6.3x, and explains some of the new features found in the Broadcom
+2.6.3x bundle.<p>
+
+<h2><a name="2__Linux_kernel_changes">2. Linux kernel changes</a></h2><p>
+
+<h3><a name="2_1__Feature_set">2.1. Feature set</a></h3><p>
+
+Some of the highlights of the new 2.6.3x linux-mips.org kernel include:<p>
+
+<ul>
+  <li>UBI/UBIFS
+  <li>Support for large (&gt;4GB) flash devices
+  <li>Fully integrated squashfs support
+  <li>ext4 (allows &gt;8TB partitions)
+  <li>Tickless operation (CONFIG_NO_HZ), for power savings
+  <li>Numerous bug fixes, arch/mips cleanups
+  <li>New APIs (so third-party drivers do not need to be backported to
+  2.6.18)
+</ul><p>
+
+Broadcom has also made a number of BSP improvements from the 2.6.18 reference
+kernel, which appear in 2.6.3x:<p>
+
+<ul>
+  <li>Autodetect UP/SMP, NOR/NAND/SPI, DOCSIS, bond options at runtime
+  <li>New, cleaned-up Broadcom API (arch/mips/include/asm/brcmstb/brcmapi.h)
+  <li>UART driver rewrite
+  <li>console= argument works as expected on alternate UARTs
+  <li>SMP rewrite
+  <li>PCI rewrite
+  <li>EMAC partial rewrite
+  <li>NOR rewrite
+  <li>Reserved memory rewrite
+  <li>Upper memory (formerly DISCONTIGMEM) rewrite
+  <li>Use WKTMR as "coherent" clock source on SMP
+  <li>New "Broadcom STB options" menu in kernel menuconfig
+  <li>Fix I/O byteswapping on big endian
+</ul><p>
+
+<h3><a name="2_2__Kernel_customization">2.2. Kernel customization</a></h3><p>
+
+The kernel configuration (i.e. menuconfig) now has a "Broadcom STB" menu
+which can be used to enable/disable various BSP features.  For instructions
+on how to edit the kernel configuration, see below under
+"Customization".<p>
+
+All board-specific information (pinmux settings, PCI slot-&gt;interrupt
+mappings, memory detection, flash partition map) has been centralized in
+arch/mips/brcmstb/board.c .  Note that the kernel now handles pinmux setup
+for the alternate UARTs, MII/RGMII, and MoCA I2C.  Pinmux setup for UARTA
+is still done by the bootloader.  The USB power sense polarity is
+configured in the "Broadcom STB" menu.<p>
+
+NOR flash now uses the standard physmap driver.  The upper bound on the
+flash size is taken from the EBI configuration register, and the driver
+will use the CFI probe results to find the correct size.  Therefore, the
+kernel code does not need to be changed in order to use a different NOR
+flash chip.<p>
+
+Many variables, including the DRAM size and flash partition information,
+are now read from CFE via environment variables.  In the absence of the CFE
+callback mechanism (e.g. when using an alternate bootloader or kexec), the
+kernel will attempt to make reasonable assumptions, but local
+customizations may still be necessary.  Please see "CFE dependencies" below
+for more information.<p>
+
+<h3><a name="2_3__Other_changes">2.3. Other changes</a></h3><p>
+
+The reserved memory facility has been overhauled.  The "mem=" command line
+parameter should no longer be used for this purpose.  Please see "bmem"
+under the command line arguments section.<p>
+
+Support for 512MB of DRAM is handled by a few customizations scattered
+throughout the MIPS code (CONFIG_BRCM_UPPER_MEMORY).  The DISCONTIGMEM
+facility is no longer used.  The SPARSEMEM facility may be used if desired,
+but it is optional.  SPARSEMEM will save approximately 2MB of system memory
+because it does not create "struct page" arrays for the memory hole at
+256MB.<p>
+
+Chips that have cache aliases will support up to 512MB through
+CONFIG_BRCM_UPPER_MEMORY .  Chips that do not have cache aliases will
+support 1GB and beyond through the standard HIGHMEM facility.<p>
+
+Both cached and uncached kseg2 mappings are provided for upper memory
+(256MB-512MB), so it can be used the same way as standard "lower" memory
+(the 256MB of RAM in kseg0/kseg1).<p>
+
+Nonstandard "one-off" memory configurations to support a specific customer
+requirement (e.g. 7440 with 1GB, 3563 with 128MB+64MB) are no longer
+included, in the interest of making the reference kernel code simpler and
+more robust.<p>
+
+Per-chip feature definitions are centralized in arch/mips/brcmstb/Kconfig .
+The intent is to leverage common platform features as much as possible
+instead of duplicating code or treating each product as a special case.<p>
+
+VM overcommit is now the default on 2.6.3x.  In the past, it was disabled
+in the rcS script.  Consequently, the default stack size hack (8MB-&gt;1MB)
+is no longer needed in the kernel code.<p>
+
+Standard 2.6 kernel facilities (e.g. platform_device, plat_* hooks) are
+used wherever possible, in lieu of changing the kernel code.  Large diffs
+to the kernel code are avoided where possible; most of these have been
+replaced with fcuntion calls out to the BSP.  This is intended to simplify
+porting to other kernel versions, and to cleanly separate the BSP code from
+core kernel functionality.<p>
+
+The MIPS COUNT/COMPARE timers are no longer used to calculate
+sub-millisecond time offsets in SMP mode.  There is no reliable mechanism
+for keeping these timers in sync on an SMP system, which often caused
+gettimeofday() to lose monotonicity (i.e. run backwards).  The alternative
+is to use the 27Mhz WKTMR clocksource, available on 3548 and newer
+chips.<p>
+
+The EMAC driver now performs background link negotiation, and supports all
+ethtool ioctls that are provided by the standard MII library.<p>
+
+Ethernet MAC addresses are no longer read from a fixed location in flash.
+CFE is expected to pass this information through the callback mechanism
+(see below).  MAC addresses are assigned by the core BSP code, and passed
+to each driver through the platform_device (platform_data) mechanism.<p>
+
+A "brcmstb" platform device has been created to provide access to STB
+platform features and information.  This replaces the changes to
+/proc/cpuinfo in 2.6.18 and previous kernels.<p>
+
+Initial RAC and cache initialization is handled entirely by the CFE MIPS
+init.  "bcmrac" and other related kernel support is no longer present in
+2.6.3x.<p>
+
+The SATA driver will not support port multipliers.<p>
+
+SMTC mode (MIPS multithreading) is not supported on 2.6.3x.<p>
+
+<h3><a name="2_4__Useful_command_line_options">2.4. Useful command line options</a></h3><p>
+
+bmem - for reserved A/V buffer memory<p>
+
+<div style="margin-left: 3%">
+
+If no options are specified, Linux will create a default bmem region
+covering all but the first 64MB of lower memory.  Linux will own 0-64MB,
+plus any upper memory or high memory.<p>
+
+bmem=0 will disable all reserved memory.<p>
+
+bmem=xxM@yyM creates an XX megabyte region starting at the YY megabyte
+boundary.  This replaces the default region.  Example:<p>
+
+<pre>
+bmem=64M@192M bmem=64M@512M
+</pre><p>
+
+This creates a 64MB region at the end of lower memory (192M-256M) and
+another 64MB region at the beginning of upper memory (512M-576M).
+Everything else on the system (512M-128M = 384M) is owned by Linux.<p>
+
+The "mem" argument should no longer be used for this purpose.<p>
+
+The application must handle all cache coherence for BMEM.<p>
+
+BMEM supports O_DIRECT I/O and get_user_pages() but does not handle cache
+coherence for this case.<p>
+
+UNCAC_ADDR(), CAC_ADDR(), virt_to_phys(), and phys_to_virt() all fully
+support upper memory.  The kernel now maintains both cached and uncached
+(fixed) mappings to the upper 256MB.<p>
+
+Due to the way the boot time allocator works, BMEM must come out of
+<tt>ZONE_NORMAL</tt> memory.  If any part of a BMEM range falls in
+<tt>ZONE_HIGHMEM</tt> , it will not be honored.<p>
+
+</div>
+
+pci=off, nousb, noflash, nosmp - Disable PCI (includes SATA), USB, MTD, or
+SMP.<p>
+
+console=ttySx,115200 - Console on UARTB/UARTC (ttyS1, ttyS2)
+is fully supported.  Early printk can be enabled (default) or disabled.<p>
+
+debug - Show KERN_DEBUG messages<p>
+
+initcall_debug - Show each initcall entry/exit (lots of output)<p>
+
+bcmrac - No longer supported.  All RAC/L2/LMB options are set up in CFE.<p>
+
+sata_brcmstb.s2=1 - Enable SATA2 PHY rates (replaces bcmsata2=1)<p>
+
+sata_brcmstb.ssc=1 - Enable SATA interpolation (replaces bcmssc=1)<p>
+
+brcmnand.cmd=&lt;cmd&gt; - pass CMD to brcmnand driver.  Example commands
+include: rescan, showbbt .  Replaces "brcmnand=".<p>
+
+nandcs - Comma-separated list of NAND chip selects.  This overrides the
+defaults set by CFE in the NAND registers.  Example: nandcs=1<p>
+
+root, rootfstype, and friends<p>
+
+<div style="margin-left: 3%">
+
+root=/dev/sda1 - rootfs (nominally ext3 or ext4) on SATA<p>
+
+ro - mount rootfs read-only (default is read/write)<p>
+
+root=/dev/mtdblock0 rootfstype=jffs2 - Boot from the jffs2 filesystem on
+the MTD rootfs partition (NOR only)<p>
+
+ubi.mtd=rootfs rootfstype=ubifs root=ubi0:rootfs - Attach UBI to the MTD
+rootfs partition, then boot from the UBIFS filesystem on the UBI 'rootfs'
+volume.<p>
+
+ubiroot - Alias for the previous "UBI" command line, to save typing.  The
+Broadcom BSP (prom.c) will expand this into the appropriate argument.<p>
+
+nfsroot=SERVER:ROOTDIR ip=dhcp - Mount the NFS-exported directory ROOTDIR
+on host SERVER as the root filesystem, after obtaining an IP for the STB
+via DHCP.<p>
+
+</div><p>
+
+mtdparts - Override the default MTD partition tables from the kernel
+command line.  Example for NOR flash:
+"mtdparts=physmap-flash.0:8M(rootfs),52M(data),4M(cfe)".  "physmap-flash.0"
+is the device name for NOR; for NAND, use "brcmnand.0".<p>
+
+<h3><a name="2_5__CFE_dependencies">2.5. CFE dependencies</a></h3><p>
+
+A number of operating parameters are obtained from the bootloader through
+the environment variable passing mechanism in arch/mips/brcmstb/prom.c .
+If a different bootloader is used in place of CFE, this functionality may
+need to be provided by another software module.<p>
+
+If the kernel is not invoked with CFE_SEAL in MIPS GPR $a3, Linux will not
+attempt to retrieve any information from CFE.<p>
+
+Some of the more notable variables are:<p>
+
+ETH0_HWADDR - Ethernet MAC address for the first interface.  Addresses for
+subsequent interfaces are derived from this address by incrementing the
+fifth octet, in the <tt>brcm_alloc_macaddr()</tt> function.  If CFE does
+not provide the first MAC address, it will default to 00:00:de:ad:be:ef .
+If the MAC address has not been programmed yet, type <tt>help macprog</tt>
+in CFE to display the usage instructions.<p>
+
+DRAM0_SIZE - Number of megabytes present on the main DRAM controller.  On
+many of the newer chips, this value can no longer be determined from the
+strap settings.  However, values up to 256MB can be probed by looking for
+address wraparounds in kseg1.  If the kernel cannot read DRAM0_SIZE, it
+will automatically attempt to probe the DRAM size.<p>
+
+DRAM1_SIZE - Number of megabytes present on the secondary DRAM controller.
+A few chips allow the OS to use both memory controllers (see
+<a href="memory.html">memory.html</a>), but most do not.  If unset,
+the kernel will assume zero.<p>
+
+CFE_BOARDNAME - Name of the reference board.  This is used to differentiate
+certain board variants, particularly DOCSIS versus non-DOCSIS (since the
+PCI interrupts are connected differently).  Default is to assume
+non-DOCSIS.<p>
+
+BOOT_FLAGS - Linux kernel command line.  Optional.<p>
+
+FLASH_TYPE - "NOR", "NAND", or "SPI".  Indicates which flash device
+contains the Linux rootfs (aka: primary flash device).<p>
+
+FLASH_SIZE - Size of the primary flash device, in megabytes.<p>
+
+LINUX_FFS_STARTAD, LINUX_FFS_SIZE - Hexadecimal offsets for the starting
+offset and size of the rootfs MTD partition (flash0.avail0).  This is used
+to build the MTD partition map for the primary flash device.  If this
+information is not provided, the kernel cannot build a default Broadcom
+partition map for the primary MTD device.  Fallback mechanisms include:<p>
+
+cmdlinepart - Specify "mtdparts=" on the kernel command line.<p>
+
+RedBoot partition table - not supported by Broadcom, but there is no reason
+why it couldn't be added as a local customization.<p>
+
+If none of these alternatives are used, the driver will not partition the
+flash, and the entire device will be accessible through a single MTD device
+node.  (Note that running flash_eraseall against this node may erase CFE or
+other important data.)<p>
+
+LINUX_PART_STARTAD, LINUX_PART_SIZE - Offsets for the Linux kernel
+partition (flash0.kernel).<p>
+
+OCAP_PART_STARTAD, OCAP_PART_SIZE - Offsets for the OpenCable area.  This
+is not used to form an MTD partition, but this data is exported to the
+Broadcom OpenCable drivers.<p>
+
+Default values for several of these options can be set in
+arch/mips/brcmstb/board.c .  The code that creates the default partition
+table is also in the same file.<p>
+
+For more information on customizing the MTD partition map, see the
+<a href="faq.html#Q19">FAQ</a>.<p>
+
+Note that if the CFE splash screen feature is active (<tt>CFE_SPLASH=1</tt>),
+this means that the BVN hardware will constantly access DRAM in the background
+until it is explicitly stopped or put in reset.  This can have implications on
+Linux:<p>
+
+<ul>
+
+  <li>Overwriting the framebuffer memory or RULs can cause the BVN hardware
+to malfunction, possibly locking up the register bus and causing the system
+to hang.  These buffers are normally located in the default "bmem" region
+above 64MB, so they will not be overwritten when the default settings are
+used.  However, if the "bmem" settings are changed, the splash regions may
+need to be moved out of the way.  This is controlled by
+<tt>SURFACE_MEM_ADDRS</tt> in the CFE source code.
+
+  <li>Splash consumes memory bandwidth and may affect benchmark results or
+timing.
+
+  <li>When entering passive standby mode for power management, all DRAM
+activity needs to be halted since this mode disables the memory controller.
+If clients are still actively accessing DRAM in the background (splash
+screen or anything else), system stability will be adversely affected.  A
+common symptom is that the system can only recover from standby once, and
+hangs on the next attempt.  A similar failure can be caused by neglecting
+to stop the 71xx BNM (eCM) prior to entering passive standby.
+
+</ul><p>
+
+Starting up Nexus will disable the splash screen.  These concerns mostly
+involve situations where Linux is booted but the application is not
+started immediately.<p>
+
+<h2><a name="3__2_6_3x_uclinux_rootfs_changes_from_2_6_18">3. 2.6.3x uclinux-rootfs changes from 2.6.18</a></h2><p>
+
+<h3><a name="3_1__rootfs_contents">3.1. rootfs contents</a></h3><p>
+
+Numerous standalone utilities have been switched over to use busybox
+instead.  The busybox variant usually has sufficient functionality for the
+STB platform, and is able to leverage the shared busybox functions (libbb)
+in order to reduce the code footprint.  Here are several examples:<p>
+
+<ul>
+  <li>login, getty, utelnetd - switched from tinylogin to busybox
+  <li>hdparm, ifconfig, route, ps, kill, hostname
+  <li>dhcpcd -&gt; busybox udhcpc
+</ul><p>
+
+getty is still present in the rootfs, but by default the system now boots
+to a bash shell.  getty can be re-enabled by editing skel/etc/inittab to
+uncomment the "getty" line, and comment out the "login -f" line.<p>
+
+Several of the rootfs packages have been upgraded:<p>
+
+<ul>
+  <li>mtd-utils is the GIT snapshot from 2009/05/11
+  <li>strace is now v4.5.18
+  <li>e2fsprogs is now v1.41.5 (supporting ext2, ext3, ext4)
+  <li>bash is now v3.2 (final GPLv2 release)
+  <li>gdb/gdbserver is now v6.8 (WARNING: GPLv3)
+  <li>zlib is now v1.2.3
+  <li>iptables is now v1.4.3
+  <li>procps is now v3.2.8
+  <li>ntfs-3g v2009.4.4 has been added
+  <li>openssl v0.9.8k has been added
+  <li>tcpdump v4.0.0 and libpcap v1.0.0 have been added
+</ul><p>
+
+Note that GPLv3 programs (currently only gdb/gdbserver) <b>must</b> be
+removed before the STB goes to production.  GPLv3 was designed so that
+covered programs could not be included in cryptographically secured
+consumer devices.  In general, if GPLv3 programs are included in the final
+product, the manufacturer must provide the means ("installation
+instructions") for end users to tamper with the rootfs contents.  In most
+circumstances this is an unacceptable requirement.<p>
+
+The "-small" builds will not include any GPLv3 code (or any other debugging
+utilities).  Broadcom recommends using the "-small" build as a starting
+point for the production rootfs.<p>
+
+stblinux kernels no longer build any standard features (e.g. usb-storage,
+vfat) as modules by default, although modules are still fully supported.
+This simplifies the rootfs build by removing several extraneous and
+error-prone steps, and reduces interdependencies between the rootfs
+image and the kernel build.<p>
+
+syslogd/klogd are still present, but by default they are not started at
+boot time.  If desired, they could be invoked from rc.user or rcS (see
+below).<p>
+
+utmp/wtmp have been disabled in the busybox configuration.<p>
+
+Here is a summary of the flash filesystem status in 2.6.3x:<p>
+
+<ul>
+  <li>ubifs (RW) - supported on NAND and NOR devices (NOR includes SPI NOR)
+  <li>jffs2 (RW) - supported on NOR devices only
+  <li>squashfs (RO) - supported on NOR (natively) and NAND (via UBI)
+  <li>cramfs - not officially supported, but it should still work if you
+  generate your own image
+  <li>yaffs2 - not supported
+</ul><p>
+
+The standard build provides images for all supported flash filesystems.
+In addition, an NFS root tarball is also generated.<p>
+
+<h3><a name="3_2__New_rootfs_features">3.2. New rootfs features</a></h3><p>
+
+busybox zcip has been enabled, in order to support link-local IP addresses.  By
+default, all interfaces will use DHCP only (no link-local).  This configuration
+can be changed with the new <tt>ipcfg</tt> command:<p>
+
+<ul>
+  <li><tt>ipcfg eth0 dhcp_ll</tt> - enable link-local + DHCP on eth0.  eth0
+      will be assigned a random link-local (169.254.x.x) address at boot time.
+      Its first alias, eth0:0 , will be configured to obtain a DHCP address in
+      the background.  Applications may periodically check the status of
+      eth0:0 in order to decide whether to advertise services on the
+      link-local interface, the DHCP interface, or both.
+  <li><tt>ipcfg eth0 default</tt> - revert to the standard DHCP-only
+      configuration.
+  <li><tt>ipcfg eth0 none</tt> - do not configure the interface at boot time.
+      (i.e. leave it "down")
+  <li><tt>ipcfg eth0 static 192.168.3.10 255.255.255.0 192.168.3.1</tt> -
+      Use a static IP 192.168.3.10, netmask 255.255.255.0, gateway
+      192.168.3.1 .  No DHCP or link-local.
+</ul><p>
+
+<tt>ipcfg</tt> saves the configuration under <tt>/etc/config/</tt> .<p>
+
+busybox mdev has been enabled, in order to populate /dev automatically.
+The only device node required in the rootfs is /dev/console .  rcS has been
+modified to try to recover from the case where /dev/console is missing.<p>
+
+A "-small" build target has been added.  This is intended to provide a
+starting point for a production STB rootfs.  Most debugging/development
+features (and in fact, most of the functionality present in the development
+rootfs) have been disabled.  Large, full-featured utilities (e.g. bash)
+have been switched to smaller, simpler versions (e.g. ash).  The intent is
+for STB customers to start "clean" with the -small target, and re-enable
+only the features that are needed to support their application stack.<p>
+
+tmpfs is now used for /tmp and /dev .<p>
+
+<h3><a name="3_3__Build_system_changes">3.3. Build system changes</a></h3><p>
+
+The uclinux-rootfs build configuration system has been overhauled in order
+to better meet the needs of the Broadcom STB platform.  Here are some
+guidelines for using the new system.<p>
+
+<h4><a name="3_3_1__Supported_builds">3.3.1. Supported builds</a></h4><p>
+
+Builds are now per-chip, rather than per-board.  Board differences are
+handled at runtime, as are minor chip variations (e.g. 7406 vs. 7405).
+There are no separate DOCSIS kernels in 2.6.3x.<p>
+
+SMP is always enabled on chips that support it.  To boot with SMP disabled,
+pass the "nosmp" option on the kernel command line.  SMTC is not supported.
+UP builds can still be made by changing the kernel configuration, but UP
+binaries will not be included in the release.<p>
+
+NOR/NAND/SPI drivers are built into all kernels (as long as the chip
+supports it).  The flash configuration is detected at runtime.  There are
+no longer separate -nand builds.<p>
+
+Separate configuration files are no longer maintained for
+initramfs/non-initramfs or LE/BE.  config.pl (see below) modifies the base
+configuration on the fly to set the appropriate options.<p>
+
+There are several "variant" builds supported at the time of this writing:<p>
+
+<ul>
+  <li>-kgdb: KGDB kernel
+  <li>-kdebug: Enable kernel debugging features (spinlock checks, full
+  debug symbols, etc.)
+  <li>-opf: Oprofile kernel
+  <li>-small: Small rootfs image with most features disabled
+  <li>-gdb: Enable native gdb debugger on the target
+  <li>-netfilter: Enable netfilter and iptables
+  <li>-nousb: Disable USB support (host/device drivers)
+  <li>-nomtd: Disable MTD (flash) support (drivers, mtd-utils)
+  <li>-nohdd: Disable hard disk support (fdisk, e2fsprogs, ATA/SCSI drivers)
+  <li>-nonet: Disable networking (drivers, ifconfig, etc.)
+</ul><p>
+
+These modifiers can be combined, e.g. "images-7405d0-small-nohdd-netfilter"
+might make sense for an IPTV STB with no USB or SATA hard drive support.<p>
+
+Not all combinations are supported, and all should be considered untested.
+They are only provided as a starting point.  To see what configuration
+options they are affecting, please refer to uclinux-rootfs/bin/config.pl .<p>
+
+Also note that changing the kernel configuration could affect binary
+compatibility with kernel modules (particularly the nonfree drivers).<p>
+
+<h4><a name="3_3_2__Basic_build_system_usage__using_the_default_settings_">3.3.2. Basic build system usage (using the default settings)</a></h4><p>
+
+<pre>
+# Build rootfs, kernels, and flash images for 7335b0
+cd uclinux-rootfs
+make images-7335b0
+
+# Build initramfs (builtin rootfs) and non-initramfs kernels, but no flash images
+make kernels-7335b0
+
+# Build just the initramfs kernel
+make vmlinuz-initrd-7335b0
+
+# Build the kernel only, no rootfs or flash images
+make vmlinuz-7335b0
+</pre><p>
+
+All images will be copied to the images/ directory (which is not erased
+by distclean/clean).  To copy them elsewhere:<p>
+
+<pre>
+# Install images to /tftpboot/$USER
+make install
+
+# Install to a custom location
+make install TFTPDIR=/tftpboot/newbuild
+</pre><p>
+
+The <tt>make install</tt> target will overwrite any pre-existing image(s) in
+<tt>$TFTPDIR</tt> with the same name as any of the files in <tt>images/</tt> .
+To avoid this, use separate <tt>$TFTPDIR</tt> directories, or copy the
+files by hand.<p>
+
+Variant builds:<p>
+
+<pre>
+# Build a non-initramfs kernel with KGDB enabled
+make vmlinuz-7335b0-kgdb
+
+# Build the Oprofile initramfs kernel
+make vmlinuz-initrd-7335b0-opf
+
+# Build an initramfs kernel with the -small rootfs:
+make vmlinuz-initrd-7335b0-small
+
+# Build for big-endian instead of LE
+make images-7335b0_be
+
+# BE variant build
+make images-7335b0_be-small-nohdd
+</pre><p>
+
+Note that the uClinux build system does not support "make -j" (parallel
+builds).  If "make -j" is used, the results will be undefined.<p>
+
+<h4><a name="3_3_3__Customization">3.3.3. Customization</a></h4><p>
+
+<pre>
+# Set up the defaults for 7335b0, but don't build anything yet
+make defaults-7335b0
+# OPTIONAL: edit the kernel configuration
+make menuconfig-linux
+# OPTIONAL: edit the busybox configuration
+make menuconfig-busybox
+# OPTIONAL: edit the uClibc configuration
+make menuconfig-uclibc
+# OPTIONAL: edit the vendor configuration (rootfs utilities)
+make menuconfig-vendor
+</pre><p>
+
+Individual linux/busybox/vendor/uclibc options can also be changed from the
+command line:<p>
+
+<pre>
+# Enable tcpdump and ntfs-3g; disable JFFS2 kernel support
+perl -w bin/config.pl vendor CONFIG_USER_TCPDUMP_TCPDUMP=y CONFIG_USER_NTFS_3G=y
+perl -w bin/config.pl linux CONFIG_JFFS2_FS=n
+# Fix up dependencies
+make oldconfig
+</pre><p>
+
+After customizing the configuration, any of the following items can be
+built:<p>
+
+<pre>
+# (Re)build rootfs + kernels + flash images using the new configuration
+make
+# synonym: make images
+
+# (Re)build rootfs + initramfs kernel
+make initrd_kernel
+
+# (Re)build non-initramfs kernel
+make kernel
+</pre><p>
+
+These builds may be rerun multiple times (e.g. after changing the
+configuration again, or after modifying files under
+user/lib/linux-2.6.x).<p>
+
+The variant builds are supported the same way:<p>
+
+<pre>
+# Start off with the -small rootfs
+make defaults-7335b0-small
+# Edit the busybox configuration to reinstate some missing features
+make menuconfig-busybox
+# Build all images
+make
+</pre><p>
+
+<h4><a name="3_3_4__Adding_programs_to_the_rootfs">3.3.4. Adding programs to the rootfs</a></h4><p>
+
+Any time the initrd_kernel or images target is invoked, the build system
+will erase the romfs/ directory and copy over a fresh version of the skel/
+directory.  Application binaries or other files may be added to the
+skel/ hierarchy if desired.<p>
+
+The main startup script is skel/etc/init.d/rcS .  This may be modified to
+fit the needs of the STB application.  Alternatively, if skel/root/rc.user
+exists, rcS will source it at the end of the boot process.  rc.user may
+contain commands that start up the user application, e.g.<p>
+
+<pre>
+cd /app
+settop install
+settop brutus -tty
+</pre><p>
+
+Additional packages may also be added to the uclinux "vendor" builds.  The
+relevant files are:<p>
+
+<ul>
+  <li>config/config.in - to add the new program to the "vendor" menuconfig
+  <li>{user,lib}/Makefile - to add it to the build, if the option is enabled
+  <li>{user,lib}/&lt;progname&gt;/Makefile - new Makefile for the package
+</ul><p>
+
+Please refer to the Broadcom utilities referenced in config.in for
+examples.<p>
+
+To add open source packages to the uclinux build system, it is usually
+necessary to add a lower-case <tt>makefile</tt> to override the default build
+targets.  autoconf-based packages can use a <tt>makefile</tt> modeled on
+<tt>user/{bash,iptables}/makefile</tt> or <tt>lib/ncurses/makefile</tt> .
+Non-autoconf based packages can use a <tt>makefile</tt> modeled on
+<tt>user/{mtdutils,procps}/makefile</tt> or <tt>lib/openssl/makefile</tt> .<p>
+
+If a substantial amount of new data is added to the rootfs, the
+defaults in <tt>uclinux-rootfs/bin/build_rootfs_images.sh</tt> may need
+to be changed.  Two common modifications are:<p>
+
+<ul>
+
+  <li>Increasing <tt>max_leb_cnt</tt> for UBIFS, especially if the filesystem
+exceeds 32MB.  If this is required, <tt>mkfs.ubifs</tt> will abort with an
+error message.
+
+  <li>Commenting out <tt>make_ubi_img</tt> and <tt>make_jffs2_img</tt> lines
+corresponding to eraseblock/page sizes that are not going to be used in
+a given project.
+
+</ul><p>
+
+<h4><a name="3_3_5__Adding_kernel_modules_to_the_rootfs">3.3.5. Adding kernel modules to the rootfs</a></h4><p>
+
+Sometimes it is desirable to build certain drivers as kernel modules.  For
+instance, the USB drivers alone can add a few seconds to the boot process.
+If they are not needed in order to bring up the application, it may be
+prudent to build them as modules and then load them in the background after
+the UI is already running.  Here are the steps to follow:<p>
+
+<ol>
+
+  <li>Set the platform defaults, then enter the kernel configuration
+  menu:<p>
+
+  <pre>
+  cd uclinux-rootfs
+  make defaults-7335b0
+  make menuconfig-linux
+  </pre>
+
+  <li>Select "Device Drivers", then "USB support".  On "Support for
+  Host-side USB" (CONFIG_USB) hit SPACE twice to build the USB subsystem as
+  modules.
+
+  <li>Save and exit.
+
+  <li>Build the modules, then install them under the "skel" rootfs
+  skeleton:
+
+  <pre>
+  make -C linux-2.6.x
+  make -C linux-2.6.x modules_install INSTALL_MOD_PATH=`pwd`/skel DEPMOD=`pwd`/bin/mipsel-linux-depmod
+  </pre><p>
+
+  (Substitute "mips" for "mipsel" on BE.  Also note the backticks.)
+
+  <li>Finish building the rootfs, kernel images, and flash images:<p>
+
+  <pre>
+  make
+  </pre>
+
+  <li>Boot the new initramfs kernel image on the target
+  (images/vmlinuz-initrd-7335b0), and use "modprobe" to install the desired
+  USB drivers:<p>
+
+  <pre>
+  modprobe ehci-hcd
+  modprobe ohci-hcd
+  modprobe usb-storage
+  modprobe usbnet
+  </pre>
+
+</ol><p>
+
+Standalone or proprietary modules (e.g. bcmdriver.ko or wl.ko) can be
+installed anywhere convenient in the skel tree, because they usually do not
+depend on other modules from the kernel build.<p>
+
+<h4><a name="3_3_6__ADVANCED_TOPIC__Build_system_internals">3.3.6. ADVANCED TOPIC: Build system internals</a></h4><p>
+
+The build defaults are stored in two places:<p>
+
+busybox/uClibc/vendor defaults are in uclinux-rootfs/defaults .  They are
+the same for all targets.<p>
+
+Kernel defaults are in stblinux-2.6.*/arch/mips/configs/bcm*_defconfig .
+They are different for each target.<p>
+
+(Note that uclinux-rootfs/linux-2.6.x is a symlink to stblinux-2.6.* .)<p>
+
+"make defaults-&lt;target&gt;" invokes bin/config.pl to these files into
+place:<p>
+
+<ul>
+  <li>defaults/config.uClibc -&gt; lib/uClibc/.config
+  <li>defaults/config.busybox -&gt; user/busybox/.config
+  <li>defaults/config.vendor -&gt; config/.config
+  <li>linux-2.6.x/arch/mips/configs/bcmXXXXYY_defconfig -&gt;
+linux-2.6.x/.config
+</ul><p>
+
+config.pl also makes a number of changes to these files before writing them
+out.  Some examples include:<p>
+
+<ul>
+  <li>Setting the proper endianness in the kernel and uClibc configurations
+
+  <li>Enabling rootfs utilities needed to support Broadcom onchip devices
+(e.g. MoCA, power management)
+
+  <li>Disabling features to create the -small images
+
+  <li>Changing kernel/rootfs defaults to create the variant (-kgdb, -opf) builds
+</ul><p>
+
+"make save_defaults" copies the current configuration back to the defaults/
+and configs/ directories, permanently overwriting whatever was there.
+Variant builds might not work as expected after changing the build
+defaults.<p>
+
+Precompiled host-side utilities (mkfs.jffs2, ubinize, etc.) are shipped in
+bin/ .  These are built on a very old IA32 system in the hopes that the
+binaries will remain forward compatible with most systems in use today.  If
+you do need to rebuild them (rare), run "make" in the uclinux-rootfs/host
+directory.<p>
+
+Partial rootfs builds can be done with the SUBDIRS option:<p>
+
+<pre>
+# Rebuild busybox, then regenerate the initramfs kernel
+make initrd_kernel SUBDIRS="user/busybox"
+
+# Just rebuild the kernel, not anything under lib/ or user/
+make initrd_kernel SUBDIRS="linux-2.6.x"
+</pre>
+
+This should be used with caution, as skipping parts of the build process
+may produce unexpected results.<p>
+
+<h3><a name="3_4__stbutil_changes">3.4. stbutil changes</a></h3><p>
+
+stbutil has been rewritten for 2.6.3x.  The new interface appears below:<p>
+
+<pre>
+# stbutil
+
+stbutil v5.0
+------------
+
+Using TFTP server:     stb-bld-00.broadcom.com
+Using TFTP path:       nightly/2631
+Linux build target:    7342a0_be
+
+Chip ID register:      BCM7342A0
+Board name:            BCM97342A0
+CPU:                   Broadcom BMIPS4380
+Primary Linux flash:   nor
+
+1) Install non-initrd kernel image to flash (not available)
+2) Install UBIFS rootfs to flash (RW/RO) 
+3) Install JFFS2 rootfs to flash (RW/RO) 
+4) Install SQUASHFS rootfs to flash (RO) 
+5) Format/partition entire HDD, then install rootfs (not available)
+6) Update rootfs on first HDD partition (not available)
+7) Install kernel/rootfs to USB thumbdrive (not available)
+8) Install nonfree drivers 
+q) Exit
+
+Selection:
+</pre>
+
+Option 1: stbutil now supports writing the kernel image itself (not just
+the rootfs) to flash.  This feature requires that CFE define a kernel flash
+partition which ends on an eraseblock boundary, as partitions that do not
+end on an eraseblock boundary are automatically marked read-only by
+mtdpart.  For the most part, the NAND partition maps are suitable, but the
+NOR partition maps are not.<p>
+
+Option 2, UBIFS, is supported on all flash types.  Several UBIFS images are
+generated for each build, in order to accommodate flash devices with
+different eraseblock and page sizes.  This needs to match the flash device
+or ubiformat will generate an error.<p>
+
+Option 3, JFFS2, is supported on NOR flash only.  The summary feature is
+enabled, in order to improve mount times.<p>
+
+Option 4, SQUASHFS, is supported for all flash types.  On NOR, the image is
+written directly to the flash.  On NAND, the SQUASHFS image is written on
+top of a newly created UBI (not UBIFS) volume.  In this case, UBI provides
+bad block remapping and handles read disturb - a superset of the romblock
+functionality found in 2.6.18.<p>
+
+Option 5 copies the initramfs rootfs to a SATA hard drive.<p>
+
+Option 6 reformats the first disk partition only (sda1), then refreshes the
+rootfs contents from the initramfs.  The contents of sda3/sda4 (/opt and
+/data) are left undisturbed.  Thus, sda3/sda4 would be good locations to
+store application binaries and video streams.<p>
+
+Option 7 installs the kernel and rootfs to a USB thumbdrive.  The
+thumbdrive must be inserted and detected prior to running stbutil.  A boot
+command is provided at the end, to allow CFE to load the kernel directly
+from the thumbdrive.<p>
+
+Option 8 installs the nonfree drivers from the network.  MoCA drivers are
+built into the released rootfs images, but in some cases they may not be
+present.  WLAN drivers are not built into any images by default.  For more
+information, see the Nonfree section of <a
+href="networking.html">networking.html</a> .<p>
+
+After installing a kernel or rootfs image, stbutil now provides sample boot
+instructions.<p>
+
+The command line options can be displayed through "stbutil -h".  These
+options allow the user to specify a different TFTP HOST:PATH, copy the
+files from a local directory instead of TFTP, and/or automate the
+process.<p>
+
+The default TFTP HOST:PATH now points to /tftpboot/$USER on the machine on
+which the image was built.  Released images from Broadcom still point to
+stb-irva-01:/tftpboot/&lt;version&gt; .<p>
+
+The default TFTP parameters and build target name are now stored in
+/etc/brcmstb.conf .  This is autogenerated by the build system.<p>
+
+stbutil requires bash as well as several other utilities.  Therefore it is
+non-functional in -small builds, and would be severely limited in the case
+of -nomtd, -nohdd, -nonet, etc.  However, it may still provide a useful
+demonstration of how to write out flash images.<p>
+
+</body>
+</html>

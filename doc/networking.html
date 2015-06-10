@@ -1,0 +1,1042 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+  <title>Networking on stblinux</title>
+  <link href="styles.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+<div class="top">
+  <h1>Networking on stblinux</h1>
+  <b>Broadcom Application Note</b>
+</div>
+
+<div class="toc">
+  <b>Table of contents</b>
+<!-- TOC START -->
+    <ul>
+      <li><a href="#h_1__General_information">1. General information</a></li>
+      <li>
+      <ul>
+        <li><a href="#h_1_1__Introduction">1.1. Introduction</a></li>
+        <li><a href="#h_1_2__IP_configuration">1.2. IP configuration</a></li>
+        <li><a href="#h_1_3__Build_variants">1.3. Build variants</a></li>
+      </ul>
+      </li>
+      <li><a href="#h_2__Onchip_ethernet_controllers">2. Onchip ethernet controllers</a></li>
+      <li><a href="#h_3__MoCA">3. MoCA</a></li>
+      <li>
+      <ul>
+        <li><a href="#h_3_1__Overview">3.1. Overview</a></li>
+        <li><a href="#h_3_2__Hardware_setup">3.2. Hardware setup</a></li>
+        <li>
+        <ul>
+          <li><a href="#h_3_2_1__RF_configurations">3.2.1. RF configurations</a></li>
+          <li><a href="#h_3_2_2__Configuring_the_bridge_hardware">3.2.2. Configuring the bridge hardware</a></li>
+          <li><a href="#h_3_2_3__Setting_up_the_coax_connections">3.2.3. Setting up the coax connections</a></li>
+        </ul>
+        </li>
+        <li><a href="#h_3_3__Software_setup">3.3. Software setup</a></li>
+        <li>
+        <ul>
+          <li><a href="#h_3_3_1__MoCA_software_components">3.3.1. MoCA software components</a></li>
+          <li><a href="#h_3_3_2__Installation">3.3.2. Installation</a></li>
+          <li><a href="#h_3_3_3__Starting_the_daemon">3.3.3. Starting the daemon</a></li>
+        </ul>
+        </li>
+        <li><a href="#h_3_4__Additional_features">3.4. Additional features</a></li>
+        <li>
+        <ul>
+          <li><a href="#h_3_4_1__Status_and_diagnostics">3.4.1. Status and diagnostics</a></li>
+          <li><a href="#h_3_4_2__Customization">3.4.2. Customization</a></li>
+          <li><a href="#h_3_4_3__Bridge_setup">3.4.3. Bridge setup</a></li>
+        </ul>
+        </li>
+      </ul>
+      </li>
+      <li><a href="#h_4__WLAN">4. WLAN</a></li>
+      <li>
+      <ul>
+        <li><a href="#h_4_1__Hardware_support">4.1. Hardware support</a></li>
+        <li><a href="#h_4_2__Software_components">4.2. Software components</a></li>
+        <li><a href="#h_4_3__Hardware_configuration">4.3. Hardware configuration</a></li>
+        <li><a href="#h_4_4__Installing_the_driver">4.4. Installing the driver</a></li>
+        <li><a href="#h_4_5__Basic_usage___AP_MODE">4.5. Basic usage - AP MODE</a></li>
+        <li><a href="#h_4_6__Basic_usage___STA_MODE">4.6. Basic usage - STA MODE</a></li>
+        <li><a href="#h_4_7__Other_notes">4.7. Other notes</a></li>
+      </ul>
+      </li>
+      <li><a href="#h_5__Nonfree_drivers">5. Nonfree drivers</a></li>
+      <li>
+      <ul>
+        <li><a href="#h_5_1__Integration_with_the_rootfs_build">5.1. Integration with the rootfs build</a></li>
+        <li><a href="#h_5_2__Installing_from_the_network">5.2. Installing from the network</a></li>
+      </ul>
+      </li>
+      <li><a href="#h_6__Wake_on_LAN">6. Wake-on-LAN</a></li>
+      <li>
+      <ul>
+        <li><a href="#h_6_1__General_information">6.1. General information</a></li>
+        <li><a href="#h_6_2__Ethernet_Wake_on_LAN">6.2. Ethernet Wake-on-LAN</a></li>
+        <li><a href="#h_6_2__MoCA_Wake_on_LAN">6.2. MoCA Wake-on-LAN</a></li>
+        <li><a href="#h_6_4__WOWL">6.4. WOWL</a></li>
+      </ul></li>
+    </ul>
+<!-- TOC END -->
+</div>
+
+<h2><a name="h_1__General_information">1. General information</a></h2>
+
+<h3><a name="h_1_1__Introduction">1.1. Introduction</a></h3><p>
+
+This document provides information on networking under Broadcom STB Linux
+2.6.31.
+
+<h3><a name="h_1_2__IP_configuration">1.2. IP configuration</a></h3>
+
+STB Linux supports the standard Linux network utilities, such as
+Busybox <tt>ifconfig</tt>:<br>
+
+<pre>
+# ifconfig
+eth0      Link encap:Ethernet  HWaddr 00:10:18:8C:D2:FF  
+          inet addr:10.60.1.81  Bcast:10.60.1.255  Mask:255.255.255.0
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:331 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:268 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000 
+          RX bytes:99004 (96.6 KiB)  TX bytes:75744 (73.9 KiB)
+          Base address:0x8000 
+</pre><p>
+
+In the Broadcom 2.6.18 Linux releases, the <tt>rcS</tt> script would
+automatically start a DHCP client on each network interface.  As STB
+networking became increasingly complex due to MoCA, WLAN, and other new
+developments, the STB Linux distribution evolved to include other
+facilities.<p>
+
+In the Broadcom 2.6.31 Linux releases, scripts have been added to support
+persistent IP configuration:
+
+<ul>
+
+  <li><tt>ifup</tt> brings a network interface up, according to the
+  instructions saved in /etc/config .  This will be run automatically if an
+  interface is hotplugged (e.g. USB) or upon insertion of a driver that was
+  built as a loadable kernel module (e.g. <tt>insmod wl_pci.ko</tt>).
+  <tt>ifup</tt> will start DHCP / zeroconfig client(s) on the interface, if
+  that is what the interface was configured to use via <tt>ipcfg</tt> .
+
+  <li><tt>ifdown</tt> stops a network interface.  If the interface was
+  configured to use DHCP / zeroconfig client(s), they will be killed.
+
+  <li><tt>ipcfg</tt> configures persistent settings for a network
+  interface.  Run it without arguments to see the options.  The settings
+  are saved under <tt>/etc/config</tt> , which should ideally be writable
+  and nonvolatile.
+
+</ul><p>
+
+By default, DHCP clients will be started on all detected interfaces except
+for <tt>lo</tt> .  This behavior can be changed, as seen in the following
+examples:<br>
+
+<pre>
+# Enable DHCP + zeroconfig (link local) on eth0
+ifdown eth0
+ipcfg eth0 dhcp_ll
+ifup eth0
+
+# Use a static IP 192.168.200.1, netmask 255.255.255.0
+ifdown eth0
+ipcfg eth0 static 192.168.200.1 255.255.255.0
+ifup eth0
+
+# Use a static IP 172.16.1.2, netmask 255.255.255.0, gateway 172.16.1.1
+ifdown eth0
+ipcfg eth0 static 172.16.1.2 255.255.255.0 172.16.1.1
+ifup eth0
+
+# Tell rcS not to touch eth0 at all on bootup
+ifdown eth0
+ipcfg eth0 none
+
+# Revert eth0 to default settings (right now this means DHCP)
+ifdown eth0
+ipcfg eth0 default
+ifup eth0
+</pre>
+
+<h3><a name="h_1_3__Build_variants">1.3. Build variants</a></h3>
+
+Several build variants can be used to change the networking options:
+
+<ul>
+
+  <li><tt>-nonet</tt> - disables all networking and network drivers.
+  
+  <li><tt>-ipv6</tt> - enables IPv6 in the kernel, busybox, uClibc, and rootfs.
+
+  <li><tt>-netfilter</tt> - enables netfilter (kernel) and iptables (rootfs).
+
+</ul><p>
+
+Sample usage:<br>
+
+<pre>
+cd uclinux-rootfs
+
+# 7420c0 initramfs kernel with IPv6
+make vmlinuz-initrd-7420c0-ipv6
+
+# 7420c0 images with IPv6 and netfilter
+make images-7420c0-ipv6-netfilter
+
+# 7550a0 non-initramfs kernel with all networking disabled
+make vmlinuz-7550a0-nonet
+</pre>
+
+<h2><a name="h_2__Onchip_ethernet_controllers">2. Onchip ethernet controllers</a></h2>
+
+Two different onchip controllers are in use in the Broadcom STB product
+line:
+
+<ul>
+
+  <li><tt>bcmemac</tt> - handled by
+  <tt>stblinux-2.6.*/drivers/net/bcmemac.[ch]</tt> .  This is a 10/100
+  controller which typically has an onchip PHY, and sometimes supports
+  external MII (25Mhz) and Turbo MII (50Mhz).
+
+  <li><tt>bcmgenet</tt> - handled by
+  <tt>stblinux-2.6.*/drivers/net/bcmgenet/</tt> .  This is a 10/100/1000
+  MAC.  Typically an onchip 10/100 PHY is included, and the MAC can
+  optionally be connected to an external RGMII, MII, or TMII PHY.  This
+  driver is also used for the MoCA datapath; internally the GENET is
+  connected via GMII to the MoCA transceiver.
+
+</ul><p>
+
+The use of external MII devices with <tt>bcmemac</tt> is governed by the
+following rules:
+
+<ul>
+
+  <li>If the product contains a single instance of the EMAC and a single
+  onchip 10/100 PHY, <tt>eth0</tt> will use this EMAC with the internal PHY.
+
+  <li>If <tt>CONFIG_BCMEMAC_EXTMII</tt> is enabled in the kernel
+  configuration, <tt>eth0</tt> will use this EMAC with an external PHY.
+
+  <li>If the product contains two instances of the EMAC and a single onchip
+  10/100 PHY (BCM7405, BCM7335), the default configuration will use EMAC_0
+  with the internal PHY on <tt>eth0</tt>, and EMAC_1 with external MII on
+  <tt>eth1</tt> .
+  
+  <li>Any interface configured to use an external PHY will scan the MDIO
+  bus at boot time to look for an external device, and the interface will
+  only be instantiated if something is found.  (i.e. BMSR is not 0x0000 or
+  0xffff)
+
+  <li>If the product contains a single instance of the EMAC but no internal
+  PHY (BCM7550), <tt>CONFIG_BCMEMAC_EXTMII</tt> will be enabled by default.
+
+  <li>To use TMII, the <tt>reclock_en</tt> bit must be set.
+
+</ul>
+
+To switch <tt>bcmgenet</tt> to use the external GPHY (RGMII interface),
+enable <tt>CONFIG_BCMGENET_0_GPHY</tt> in the kernel configuration.  This
+is currently supported on the BCM97420CB reference platform.
+
+<h2><a name="h_3__MoCA">3. MoCA</a></h2>
+
+<h3><a name="h_3_1__Overview">3.1. Overview</a></h3>
+
+MoCA provides a reliable, high-speed home networking connection over
+standard coaxial cabling.  It is typically used to allow STBs to share
+video streams and communicate with the outside world, without the need to
+run new cables.
+
+<h3><a name="h_3_2__Hardware_setup">3.2. Hardware setup</a></h3>
+
+<h4><a name="h_3_2_1__RF_configurations">3.2.1. RF configurations</a></h4>
+
+MoCA is designed to coexist on the same cable that provides the cable or
+satellite feed to the STB.  However, cable feeds and satellite feeds use
+different frequency ranges, and it is not practical to design a single MoCA
+front end that is compatible with both types of systems.  Therefore, MoCA
+runs on two different, incompatible RF bands:
+
+<ul>
+
+  <li>HighRF (50Mhz channel centered at 875-1500Mhz): This is the default
+  band for most consumer MoCA devices, such as the Netgear MCAB1001.  It is
+  the standard MoCA front end on cable STB reference boards (BCM97420CB,
+  BCM97420DVR2, BCM97125) and the BCM96829RG MoCA bridge.
+
+  <li>MidRF (50Mhz channel centered at 500-600Mhz): This is the standard
+  MoCA front end on satellite STB reference boards (BCM97420DBS, BCM97340,
+  BCM97342) and the BCM96829RG_SAT MoCA bridge.
+
+</ul>
+
+MidRF and HighRF equipment will not interoperate.
+
+
+<h4><a name="h_3_2_2__Configuring_the_bridge_hardware">3.2.2. Configuring the bridge hardware</a></h4>
+
+The defaults on the BCM96829RG and BCM96829RG_SAT should be set as follows,
+by connecting to the bridge with a PC terminal program at 115200bps, 8 data
+bits, 1 stop bit, no parity.  The serial level converter (included in the
+bundle) plugs into the 6-pin connector in the back of the unit.<p>
+
+First, hit enter until you get a prompt:<br>
+
+<pre>
+SOAP Register Service ready
+SOAP MoCA Service ready
+Broadcom Packet CMF Daemon v0.1 (Aug 14 2009, 10:39:38)
+
+BCM96816 xDSL Router
+ &gt; 
+</pre>
+
+<p>To set the defaults for HighRF (BCM96829RG):<br>
+
+<pre>
+ &gt; sh
+
+
+BusyBox v1.00 (2009.08.14-14:37+0000) Built-in shell (msh)
+Enter 'help' for a list of built-in commands.
+
+# mocactl restore_defaults ; mocactl trace --none
+# exit
+
+ &gt; lan config --ipaddr primary 192.168.1.1 255.255.255.0 --dhcpserver disable
+ &gt; save
+</pre><p>
+
+To set the defaults for MidRF (BCM96829RG_SAT):<br>
+
+<pre>
+ &gt; sh
+
+
+BusyBox v1.00 (2009.08.14-14:37+0000) Built-in shell (msh)
+Enter 'help' for a list of built-in commands.
+
+# mocactl restore_defaults ; mocactl trace --none
+# exit
+
+ &gt; lan config --ipaddr primary 192.168.1.1 255.255.255.0 --dhcpserver disable
+ &gt; save
+</pre>
+
+<h4><a name="h_3_2_3__Setting_up_the_coax_connections">3.2.3. Setting up the coax connections</a></h4>
+
+The BCM97xxx STB reference board should be connected to another MoCA device
+that operates in the appropriate frequency range (see above).  On the
+BCM97420CB reference board, the MoCA connector is attached to the triplexer
+in the rear right corner of the board.  Other boards should be similar.<p>
+
+For best results, use RG-6 coaxial cabling.  Standard 2Ghz splitters are
+useful for connecting multiple nodes.  If the connection is directly
+between two MoCA nodes, it may be helpful to insert a 20dB attenuator.<p>
+
+If you have a MoCA node that has both "cable in" and "cable out"
+F-connectors, always use "cable in" for MoCA.  On BCM96829RG, use the
+"direct MoCA" F-connector (J402) instead, unless you know for sure that
+the diplexer has been enabled.<p>
+
+Note that some old versions (2.5x) of the Motorola NIM100 firmware are not
+compatible with the published MoCA 1.0 specification.  Attempting to use
+these devices with a Broadcom MoCA 1.0/1.1 device will result in undefined
+behavior.
+
+<h3><a name="h_3_3__Software_setup">3.3. Software setup</a></h3>
+
+<h4><a name="h_3_3_1__MoCA_software_components">3.3.1. MoCA software components</a></h4>
+
+The following components are provided with each STB Linux release:
+
+<ul>
+
+  <li><tt>stblinux-2.6.*/drivers/char/bmoca.c</tt> - Linux kernel driver.
+  This boots the MoCA core, and passes messages between user mode software
+  and the hardware.  This is licensed under GPLv2 as it is built into the
+  kernel image.
+
+  <li><tt>stblinux-2.6.*/include/linux/bmoca.h</tt> - Defines the ioctl
+  interface between the kernel driver and the daemon.
+
+  <li><tt>uclinux-rootfs/skel/bin/mocacfg</tt> - Shell script used to boot
+  and configure MoCA.  Public domain.
+
+  <li><tt>nonfree/<i>PLATFORM</i>/moca/fw/mocacore.bin</tt> - Binary
+  firmware image used to implement the MoCA MAC protocol.  This runs on a
+  dedicated processor inside the MoCA core.  Source code is never provided
+  to anybody outside Broadcom, but the binary image is freely
+  redistributable.
+
+  <li><tt>nonfree/<i>PLATFORM</i>/moca/bin/mocad</tt> - An enhanced MoCA
+  daemon, which supports a library API, advanced debugging options, LOF
+  storage/retrieval, and many other features.  Source code is provided
+  under the Broadcom SLA; the binary image is freely redistributable.
+
+  <li><tt>nonfree/<i>PLATFORM</i>/moca/bin/mocactl</tt> - A command line
+  interface (CLI) that provides the operator with ways to view the
+  interface/network status, monitor link quality, and modify configuration
+  options.  Source code is provided under the Broadcom SLA; the binary
+  image is freely redistributable.
+
+  <li><tt>nonfree/<i>PLATFORM</i>/moca/bin/soapserver</tt> - A daemon that
+  runs on the STB to allow Broadband Studio (BBS) to monitor the MoCA
+  interface and display statistics/graphs on a Windows PC.  Source code is
+  provided under the Broadcom SLA; the binary image is freely
+  redistributable.
+
+</ul>
+
+<tt><i>PLATFORM</i></tt> refers to the name of the build target, e.g.
+<tt>7420c0</tt> .  The nonfree binaries are provided in the appropriate
+nonfree tarball (e.g. <tt>nonfree-7420c0.tar.bz2</tt>) in the Linux
+release.<p>
+
+Source code for the nonfree programs can be obtained under the Broadcom
+SLA.  It is <b>not</b> redistributable to third parties.  The source
+tarball is named <tt>moca_src-<i>VERSION</i>.tar.bz2</tt> (e.g.
+<tt>moca_src-2.6.31-1.0.tar.bz2</tt>).  This tarball provides a few
+additional components that are of interest to application developers:
+
+<ul>
+
+  <li><tt>libmoca</tt> - A comprehensive C library API that allows customer applications to query/configure MoCA operating parameters and statistics, start/stop the interface, and receive asynchronous event notifications.</li>
+
+
+  <li><tt>libtest</tt> and <tt>eventtest</tt> - Example applications that use the MoCA library API.</li>
+
+</ul>
+
+The software modules discussed in this document only handle the MoCA
+control path.  All data traffic is passed through the <tt>bcmgenet</tt>
+ethernet driver in the kernel, which operates independently of this
+software.
+
+<h4><a name="h_3_3_2__Installation">3.3.2. Installation</a></h4>
+
+The default rootfs images now include the MoCA user programs.  If you are
+using the images released by Broadcom, they should already be present.<p>
+
+If you are building STB Linux from source code, there are a number of
+different ways to get the nonfree programs onto the target system.  Please
+see the Nonfree section below for details.
+
+<h4><a name="h_3_3_3__Starting_the_daemon">3.3.3. Starting the daemon</a></h4>
+
+By default, <tt>/etc/init.d/rcS</tt> will invoke <tt>/bin/mocacfg</tt> to
+start <tt>/bin/mocad</tt> at boot time.  No additional actions are
+necessary in order to start mocad in the default configuration.  When the
+daemon starts, you will see something like this on the system console:<br>
+
+<pre>
+Starting mocad
+</pre><p>
+
+You can check the link status as follows:<br>
+
+<pre>
+# show general information, link status, uptime, privacy TEK/PMK, etc.
+mocactl show --status
+</pre><p>
+
+Under some circumstances, it may take 60-90 seconds to link up.  This time
+can be reduced by setting a fixed frequency on one or both nodes:<br>
+
+<pre>
+# For HighRF
+mocactl restart --lof 1150 --singleCh on
+
+# For MidRF
+mocactl restart --lof 575 --singleCh on
+</pre><p>
+
+To quickly verify connectivity with a BCM96829RG node, wait for an
+indication that the link is up, and then run these commands:<br>
+
+<pre>
+ifdown eth1
+ifconfig eth1 192.168.1.2 up
+ping -c 5 192.168.1.1
+</pre><p>
+
+Note that MoCA is usually <tt>eth1</tt> on chips with a standard Ethernet
+interface (BCM7420, BCM7340, BCM7342) but it is usually <tt>eth0</tt> on
+systems that lack this feature (BCM7125, BCM7408).<p>
+
+The BCM96829RG should reply to the pings, with typical latency around 5ms
+on a two node network.
+
+<h3><a name="h_3_4__Additional_features">3.4. Additional features</a></h3>
+
+<h4><a name="h_3_4_1__Status_and_diagnostics">3.4.1. Status and diagnostics</a></h4>
+
+<tt>mocactl</tt> can be used to configure and query the MoCA interface.  Here are some common tasks:<br>
+
+<pre>
+# show statistics
+mocactl show --stats
+
+# show bitloading, PHY rate, freq offset, power for all nodes:
+mocactl showtbl --nodestatus
+
+# show bitloading, PHY rate, freq offset, power for node 1:
+mocactl show --nodestatus 1
+
+# show unicast forwarding table (MAC-&gt;node_id lookup for outbound packets)
+mocactl showtbl --ucfwd
+
+# show source address table (listing MAC addresses behind our bridge)
+mocactl showtbl --srcaddr
+
+# show tunable ANY_TIME configuration values
+mocactl show --config
+</pre>
+
+<h4><a name="h_3_4_2__Customization">3.4.2. Customization</a></h4>
+
+<tt>mocad</tt> supports a number of command-line options.  Here are some of the more common ones:
+
+<ul>
+
+  <li><tt>-D</tt> - Start the daemon in the background.  Default is to run in the foreground.
+
+  <li><tt>-w</tt> - Wait for a <tt>moca_start()</tt> library call before booting the MoCA core.  Default is to start immediately.  This may be used in conjunction with an application that manages the MoCA configuration parameters on its own.  Sample usage:<br>
+
+<pre>
+mocad -wD
+mocactl start --maxTxPower 0
+</pre>
+
+  <li><tt>-v[v[v]]</tt> - Increase verbosity.  When submitting bug reports to Broadcom, please invoke <tt>mocad</tt> with these options: <tt>-vvvP</tt> and send us the entire log.  This enables debug messages and logs the output from the core.
+
+  <li><tt>-F FREQ</tt> - Force a specific RF channel.  Default is to autoscan the standard MoCA frequency ranges (875Mhz-1500Mhz).  Example usage: <tt>-F 1150</tt> .
+
+</ul>
+
+Numerous parameters can be set at runtime, as well.  Here are some examples:<br>
+
+<pre>
+# restart interface at 1150Mhz (fixed)
+mocactl restart --singleCh on --lof 1150
+
+# same as above, but skip taboo scan (fast, but non-MoCA compliant)
+mocactl restart --singleCh on2 --lof 1150
+
+# restart interface, autoscan frequency
+mocactl restart --singleCh off
+
+# enable privacy, with key 99999999988888888 (default is no privacy)
+mocactl restart --privacy on --password 99999999988888888
+
+# enable continuous packet transmissions (test mode; normal commands are disabled)
+mocactl restart --constTxMode tx
+
+# exit test mode
+mocactl restart --constTxMode normal
+</pre><p>
+
+By default, <tt>mocactl</tt> works in a similar fashion to <tt>ifconfig</tt>, <tt>iwconfig</tt>, and other standard Linux utilities; changes will not be persistent across system boots.  To set the default configuration to be used at startup, invoke the <tt>mocacfg</tt> utility:<br>
+
+<pre>
+# Enable Privacy on boot, then restart the interface with the new settings
+mocacfg set --privacy on --password 99999999988888888
+mocacfg restart
+
+# Show the saved configuration
+mocacfg show
+
+# Reset the saved configuration to defaults (empty string), then reboot
+mocacfg set
+reboot
+</pre><p>
+
+Persistent configurations are saved under <tt>/etc/moca</tt>, and therefore they can only be maintained on a non-volatile read/write root filesystem (e.g. stbutil option 2 or 5).  On an initrd kernel or a read-only root filesystem, the changes will not be permanently saved and a warning message may be displayed.<p>
+
+The same requirement applies to the last operating frequency (LOF).  Nodes
+will link up more quickly, and remain compliant with the MoCA
+specification, only if they are able to write the LOF to nonvolatile
+storage.
+
+<h4><a name="h_3_4_3__Bridge_setup">3.4.3. Bridge setup</a></h4>
+
+It is often desirable to configure the STB to bridge network traffic
+between the Ethernet interface (nominally eth0) and the MoCA interface
+(nominally eth1).  The <tt>bridge-start</tt> and <tt>bridge-stop</tt>
+scripts have been added to the rootfs for this purpose.  These scripts use
+the standard Linux kernel bridging facility, which passes regular IP
+traffic.  This also works with an Ixia or Smartbits tester that is
+configured to transmit valid UDP datagrams.<p>
+
+To bring up the MoCA bridge automatically at boot time:
+
+<ol>
+  <li>Boot the initrd kernel for your platform:<br>
+<pre>ifconfig -auto eth0
+boot -z -elf stb-irva-01:2631-1.0/vmlinuz-initrd-7420c0</pre>
+  </li>
+  <li>Install the UBIFS rootfs to the flash:<br>
+<pre>stbutil -a 2</pre></li>
+  <li>Reboot, and set up CFE to autoboot the non-initrd kernel.  e.g.<br>
+<pre>ifconfig -auto eth0
+flash stb-irva-01:2631-1.0/vmlinuz-7420c0 flash0.kernel
+setenv -p STARTUP "boot -z -elf flash0.kernel: 'ubiroot'"
+</pre></li>
+  <li>Reset the board, and let it boot Linux from the flash.</li>
+  <li>Tell the network scripts not to start a DHCP client on the br0
+interface (optional):<br>
+<pre>ipcfg br0 none</pre></li>
+  <li>Add <tt>/bin/bridge-start</tt> to <tt>/root/rc.user</tt> so that it runs on boot:<br>
+<pre>echo "/bin/bridge-start" &gt; /root/rc.user
+reboot</pre></li>
+  <li>Ensure that the system is working as expected when it comes back up.</li>
+</ol>
+
+<h2><a name="h_4__WLAN">4. WLAN</a></h2>
+
+<h3><a name="h_4_1__Hardware_support">4.1. Hardware support</a></h3>
+
+The following table summarizes the WLAN chipsets supported by STB Linux:<br>
+
+<table border=1>
+
+  <tr>
+    <th>Chipset
+    <th>Interface
+    <th>Notes
+  <tr>
+    <td>BCM4321
+    <td>PCI2.3 + PCIe
+  <tr>
+    <td>BCM4322
+    <td>PCI2.3 + PCIe
+    <td>Internal PA (single chip solution)
+  <tr>
+    <td>BCM43222
+    <td>PCI2.3
+    <td>Lower cost 4322 design
+  <tr>
+    <td>BCM43224
+    <td>PCIe
+    <td>Lower cost 4322 design
+  <tr>
+    <td>BCM4323
+    <td>USB
+</table>
+
+<h3><a name="h_4_2__Software_components">4.2. Software components</a></h3>
+
+The following files are provided in the nonfree-* tarballs bundled with
+each STB Linux release:
+
+<ul>
+
+  <li><tt>nonfree/<i>PLATFORM</i>/wlan/mod/usbabs.ko</tt> - USB abstraction
+  layer (GPL).  This allows the proprietary, OS-independent driver code
+  (wl_usb.ko) to run under Linux.</li>
+
+  <li><tt>nonfree/<i>PLATFORM</i>/wlan/mod/wl_usb.ko</tt> - USB kernel
+  driver.  This may also be referred to as the "high" driver.</li>
+
+  <li><tt>nonfree/<i>PLATFORM</i>/wlan/mod/wl_pci.ko</tt> - PCI driver,
+  only provided for platforms that have a PCI bus.</li>
+
+  <li><tt>nonfree/<i>PLATFORM</i>/wlan/bin/wl</tt> - Command line utility
+  to control the WLAN interface.</li>
+
+  <li><tt>nonfree/<i>PLATFORM</i>/wlan/bin/wpsenr</tt> - Command line utility
+  to set up Wifi Protected Setup (WPS).</li>
+
+</ul>
+
+The Nonfree section (below) outlines the various options for getting the
+WLAN binaries onto the STB target.
+
+<h3><a name="h_4_3__Hardware_configuration">4.3. Hardware configuration</a></h3>
+
+USB dongles do not need any special configuration.  The antenna is built
+in.<p>
+
+mPCI cards such as BCM94321MP or BCM94322MP need two antennas attached to
+the UFL connectors at the top of the card.  If there are three UFL
+connectors on your card, leave the middle one unconnected.  Some antenna
+models that are known to work include:
+
+<ul>
+  <li>Mobile Mark PSKN3-2400S</li>
+  <li>Nearson T614FC</li>
+</ul>
+
+The BCM94322MP cards (p/n 100-116186) use reserved pins 36 and 43 on the
+mPCI connector for Bluetooth coexistence signaling.  Some of the reference
+board designs put extra EBI signals on the same pins.  This may cause the
+WLAN card to refuse to transmit (e.g. it can scan for networks but cannot
+associate) or it may cause erratic operation of the NAND interface on the
+STB.  To work around this, you may remove R20 and R22 on the BCM94322MP, or
+the appropriate resistors on the STB reference board.
+
+<h3><a name="h_4_4__Installing_the_driver">4.4. Installing the driver</a></h3>
+
+The driver is installed using <tt>insmod</tt>:<br>
+
+<pre>
+# install the PCI driver:
+insmod /lib/modules/wl_pci.ko
+
+# or, install and set up the USB driver:
+insmod /lib/modules/usbabs.ko
+insmod /lib/modules/wl_usb.ko
+wl rpc_agg 0x10003
+</pre><p>
+
+Typical output looks like:<br>
+
+<pre>
+wl: module license 'unspecified' taints kernel.
+eth2: Broadcom BCM432c 802.11 Wireless Controller 5.14.32.0
+</pre>
+
+<h3><a name="h_4_5__Basic_usage___AP_MODE">4.5. Basic usage - AP MODE</a></h3>
+
+These commands will create a new network called "brcmstb" on channel 6 in
+the 2.4Ghz band, then set the IP to 192.168.200.1:<br>
+
+<pre>
+ifdown eth2
+wl ap 1
+wl band b
+wl channel 6
+wl up
+wl join brcmstb
+ifconfig eth2 192.168.200.1 netmask 255.255.255.0 up
+</pre>
+
+
+<h3><a name="h_4_6__Basic_usage___STA_MODE">4.6. Basic usage - STA MODE</a></h3>
+
+These commands will join an existing network called "brcmstb" in the 2.4Ghz
+band, then set the IP to 192.168.200.2:<br>
+
+<pre>
+ifdown eth2
+wl ap 0
+wl band b
+wl up
+wl join brcmstb
+ifconfig eth2 192.168.200.2 netmask 255.255.255.0 up
+</pre>
+
+
+<h3><a name="h_4_7__Other_notes">4.7. Other notes</a></h3>
+
+To get started, the recommended course of action is to set up two STB
+reference boards with WLAN cards, and follow the above instructions to
+configure one as AP and one as STA.  If the hardware is working correctly,
+you will be able to ping between the boards to verify proper operation.<p>
+
+The following commands will provide information regarding the state of the
+wireless device:<br>
+
+<pre>
+wl status
+wl nrate
+wl dump
+</pre>
+
+
+To scan for available wireless networks (STA mode only):<br>
+
+<pre>
+wl scan
+wl scanresults
+</pre>
+
+
+To enable WEP encryption, run this command on both the AP side and STA side:<br>
+
+<pre>
+wl addwep 0 &lt;key&gt;
+wl wepstatus 1
+</pre>
+
+&lt;key&gt; must be 10, 26, 32, or 64 hex digits long.<p>
+
+To enable WPA2-PSK encryption on the STA side, run these commands:<br>
+
+<pre>
+wl wsec 7
+wl sup_wpa 1
+wl set_pmk &lt;passphrase&gt;
+wl join &lt;ssid&gt; imode bss amode wpa2psk
+</pre>
+
+<p>Enabling WPA2 on the AP side requires additional software which will be
+provided in a future release.<p>
+
+For additional information on using this driver, please contact the
+Wireless Networking group.
+
+<h2><a name="h_5__Nonfree_drivers">5. Nonfree drivers</a></h2>
+
+<h3><a name="h_5_1__Integration_with_the_rootfs_build">5.1. Integration with the rootfs build</a></h3>
+
+On 2.6.31, the nonfree (proprietary) MoCA and WLAN drivers have been
+integrated into the standard rootfs build process.  There are several
+different ways of getting these drivers onto the STB.<p>
+
+A trivial rootfs/kernel build does not include any nonfree software:<br>
+
+<pre>
+tar jxf /tmp/stblinux-2.6.31-1.0.tar.bz2
+tar jxf /tmp/uclinux-rootfs-2.6.31-1.0.tar.bz2
+cd uclinux-rootfs
+make images-7420c0
+</pre><p>
+
+The resultant images will not have either MoCA or WLAN drivers. A nonfree-*
+tarball will not be generated.<p>
+
+A "basic" nonfree customer build will use the precompiled binary versions
+of the nonfree drivers, provided by Broadcom in the release bundle. Recall
+that the binary versions are freely redistributable, so this option is
+available to any STB Linux recipient:<br>
+
+<pre>
+tar jxf /tmp/stblinux-2.6.31-1.0.tar.bz2
+tar jxf /tmp/uclinux-rootfs-2.6.31-1.0.tar.bz2
+tar jxf /tmp/nonfree-7420c0.tar.bz2
+cd uclinux-rootfs
+make images-7420c0
+</pre><p>
+
+Note that a different nonfree binary tarball is generated for each build
+target.  This is necessary because the WLAN drivers are kernel modules, and
+the kernel's binary interface can differ from one build target to the next.
+The most obvious difference is SMP versus UP, but there are other
+configuration variations which affect the binary compatibility of kernel
+modules.  It is also likely that different MoCA firmware images will
+someday be necessary as advanced features are added to new products.<p>
+
+An "advanced" customer build will compile the (SLA) MoCA programs from
+source.  This will generate a new nonfree-* tarball in the <tt>images/</tt>
+directory:<br>
+
+<pre>
+tar jxf /tmp/stblinux-2.6.31-1.0.tar.bz2
+tar jxf /tmp/uclinux-rootfs-2.6.31-1.0.tar.bz2
+tar jxf /tmp/moca_src-2.6.31-1.0.tar.bz2
+# OPTIONAL: this will pick up the binary-only WLAN driver for 7420c0, but the
+# precompiled MoCA driver will be overwritten
+tar jxf /tmp/nonfree-7420c0.tar.bz2
+cd uclinux-rootfs
+make images-7420c0
+</pre><p>
+
+Note that each of the WLAN drivers must be manually enabled for rootfs
+installation, since they would unnecessarily bloat the images if they were
+included by default:<br>
+
+<pre>
+cd uclinux-rootfs
+make defaults-7420c0
+# install USB driver into rootfs
+perl -w bin/config.pl vendor CONFIG_USER_NONFREE_WLAN_USB=y
+# install PCI driver into rootfs
+perl -w bin/config.pl vendor CONFIG_USER_NONFREE_WLAN_PCI=y
+# fix up dependencies
+make oldconfig
+</pre><p>
+
+These options can also be configured through the menuconfig UI, under
+"Broadcom STB Configuration":<br>
+
+<pre>
+cd uclinux-rootfs
+make defaults-7420c0
+make menuconfig-vendor
+# edit, save, exit
+make images
+</pre>
+
+<h3><a name="h_5_2__Installing_from_the_network">5.2. Installing from the network</a></h3>
+
+The <tt>stbutil</tt> script is also able to fetch and unpack the nonfree
+tarball (requires a writable rootfs):<br>
+
+<pre>
+# stbutil -a8
+
+stbutil v5.0
+------------
+
+Using TFTP server:     stb-bld-00.broadcom.com
+Using TFTP path:       nightly/2631
+Linux build target:    7420c0
+
+Chip ID register:      BCM7420C0
+Board name:            BCM97420C0
+CPU:                   Broadcom BMIPS5000
+Primary Linux flash:   nand
+
+1) Install non-initrd kernel image to flash 
+2) Install UBIFS rootfs to flash (RW/RO) 
+3) Install JFFS2 rootfs to flash (RW/RO) (not available)
+4) Install SQUASHFS rootfs to flash (RO) (uses UBI)
+5) Format/partition entire HDD, then install rootfs 
+6) Update rootfs on first HDD partition 
+7) Install kernel/rootfs to USB thumbdrive 
+8) Install nonfree drivers 
+q) Exit
+
+Selection: 6
+
+Fetching via tftp: stb-bld-00.broadcom.com:nightly/2631/nonfree-7420c0.tar.bz2
+
+MoCA: already installed, skipping
+WLAN: now installed
+
+# ls -l /lib/modules/*.ko /bin/wl
+-rwxr-xr-x    1 root     root       366960 Jan  1 00:00 /bin/wl
+-rw-r--r--    1 root     root        26498 Jan  1 00:00 /lib/modules/usbabs.ko
+-rw-r--r--    1 root     root      3819067 Jan  1 00:00 /lib/modules/wl_pci.ko
+-rw-r--r--    1 root     root      1444526 Jan  1 00:00 /lib/modules/wl_usb.ko
+# 
+</pre><p>
+
+It is also possible to manually unpack the nonfree tarball, and copy the
+desired items into <tt>uclinux-rootfs/skel/</tt> so that they are built
+into the rootfs.
+
+<h2><a name="h_6__Wake_on_LAN">6. Wake-on-LAN</a></h2>
+<h3><a name="h_6_1__General_information">6.1. General information</a></h3>
+Wake-on-LAN (WOL) provides a capability to wake up a suspended system remotely
+by sending a specific packet over the network. WOL supported from S2 suspend
+mode only.<p>
+There are several types of wakeup packets currently available.
+<ul>
+  <li>Magic packet (MPD)
+  <p>MPD is a link layer broadcast or subnet directed broadcast containing
+  specific pattern in the body of the packet.
+  To send MP, sender must know MAC address of the system it wants to wakeup.
+  Please note that when sending a link layer broadcast the sender and
+  recipient must be located on the same subnet, otherwise the router will
+  drop the packet.</p>
+  <p>To enable MPD, use <tt>ethtool</tt> to reconfigure network interface:</p>
+  <pre>
+# ethtool -s eth0 wol g
+# ethtool -s eth1 wol g
+</pre>
+  <p>Note that when any type of WOL is enabled, ACPI detection gets enabled
+  as well to allow host to wake up and respond on ARP requests periodically
+  sent by switches/routers (?).
+  Otherwise the switch may decide that the node is dead, and that
+  would eventually allow DHCP server reuse its IP address.<p>
+  To generate MP, you can use any tool available. Examples include:
+  <ul>
+    <li>Linux - <a href="http://manpages.ubuntu.com/manpages/hardy/man1/wakeonlan.1.html">wakeonlan</a> perl script</li>
+    <li>Windows - <a href="http://magicpacket.free.fr/">Magic Packet Sender</a> application</li>
+  </ul></li>
+  <li>ARP request (ACPI)
+  <p>A suspended network node can wake up on ARP request with matching IP address.
+  This presumes that the node did not lose its IP address
+  while being suspended. To enable ACPI WOL, use <tt>ethtool</tt>
+  to reconfigure network interface:<br>
+<pre>
+# ethtool -s eth0 wol a
+# ethtool -s eth1 wol a
+</pre>
+  <p>To generate ARP request, use the following methods.
+  <ul>
+    <li>Linux (requires superuser privileges)
+    <p>Clear ARP cache entry and ping the suspended node.
+    Ping would first generate ARP request which must
+    wake up the target system.<br>
+<pre>
+# arp -d &lt;IP ADDRESS&gt;
+# ping &lt;IP ADDRESS&gt;
+</pre></li>
+    <li>Windows
+    <p>Open DOS window and type<br>
+<pre>
+# arp -d &lt;IP ADDRESS&gt;
+or 
+# arp -d *
+# ping &lt;IP ADDRESS&gt;
+</pre></li>
+  </ul></li>
+  <li>Arbitrary pattern
+  <p>Currently supported in the driver, but there is no application
+  interface available to program a pattern to the hardware
+  filter block of GENET interface.</li>
+</ul>
+If <tt>ethtool</tt> is not included in the released rootfs image,
+it can be added by rebuilding rootfs after reconfiguring the package.
+Example for <tt>7425a0</tt>:<br>
+<pre>
+# cd uclinux-rootfs
+# make defaults-7425a0
+# perl -w bin/config.pl vendor CONFIG_USER_ETHTOOL=y
+# make oldconfig
+# make initrd_kernel
+or 
+# make images
+</pre>
+<p>When testing WOL on boards having two interfaces
+(Ethernet + MoCA or Ethernet + Ethernet),
+it is advisable to have these interfaces connected to different subnets.
+
+<h3><a name="h_6_2__Ethernet_Wake_on_LAN">6.2. Ethernet Wake-on-LAN</a></h3>
+For ACPI WOL to work you have to make sure that Ethernet interface
+has IP address assigned to it. Before suspending the system,
+check configuration:<br>
+<pre>
+# ifconfig eth0|grep inet
+          inet addr:10.13.139.143  Bcast:10.13.139.255  Mask:255.255.254.0
+</pre>
+<h3><a name="h_6_2__MoCA_Wake_on_LAN">6.2. MoCA Wake-on-LAN</a></h3>
+There is an additional step needed to enable MoCA WOL.
+This step informs <tt>bmoca</tt> driver that it should not
+reset MoCA core when suspending the device. To enable this mode, type<br>
+<pre>
+# mocactl wol --enable
+bmoca bmoca0: WOL is enabled
+# mocactl wol --enable
+</pre>
+<p>To disable, use<br>
+<pre>
+# mocactl wol --disable
+bmoca bmoca0: WOL is disabled
+</pre>
+<p>If you are getting an error,
+your MoCA daemon and application suite needs to be updated:<br>
+<pre>
+# mocactl wol --enable
+mocactl: invalid command
+</pre>
+<p>Currently MoCA firmware is not capable of re-establishing lost link without
+help from the host. Some events (asserts, resets etc.) can cause
+the link to drop during suspend, and therefore WOL
+capability will be lost. The future changes to firmware,
+kernel and MoCA application stack will allow us to recover from this failure.
+For now, when testing MoCA WOL at least make sure
+the physical link is established and IP address has been assigned
+to the interface. To check MoCA status, use command<br>
+<pre>
+# mocactl show --status|grep linkStatus
+operStatus                : Enabled 	linkStatus                : Up
+</pre>
+<h3><a name="h_6_4__WOWL">6.4. WOWL</a></h3>
+TBD
+</body>
+</html>

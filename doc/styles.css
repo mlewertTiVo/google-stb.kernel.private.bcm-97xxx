@@ -1,0 +1,41 @@
+.top {
+	text-align: center;
+}
+
+.toc {
+	border: 1px solid black;
+	padding: 10px;
+	margin: 0;
+	display: inline-block;
+}
+
+.toc ul {
+	list-style: none;
+	padding: 0;
+	margin-left: 10px;
+	margin-right: 10px;
+}
+
+table,td,th {
+	border-width: 1px;
+	border-style: solid;
+	border-spacing: 0px;
+	border-collapse: collapse;
+	padding: 5px;
+}
+
+pre {
+	border: 1px solid gray;
+	padding: 1em;
+	margin-left: 2em;
+	display: inline-block;
+}
+
+
+a:hover {
+  text-decoration: underline;
+}
+
+a {
+  text-decoration: none;
+}

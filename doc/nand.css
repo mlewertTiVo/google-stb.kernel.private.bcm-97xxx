@@ -1,0 +1,58 @@
+/** CSS styles used for NAND Flash FAQ **/
+
+/* Layout */
+html,body{margin:0;padding:0}
+body{font: 95% arial,sans-serif;text-align:center}
+div#header{background-color:#ccf;}
+div#header h1{height:80px;line-height:80px;margin:0;padding-left:10px;}
+div#header h2{height:40px;line-height:40px;margin:0;padding-left:10px;}
+div#container{text-align:left}
+div#content p{line-height:1.4}
+div#footer{background:#ccf;}
+div#footer p{margin:0;padding:5px 10px}
+div#container{width:700px;margin:0 auto}
+div#wrapper{float:left;width:100%}
+div#content{margin: 0 0}
+div#footer{clear:left;width:100%}
+
+/* Styles */
+.top {
+	text-align: center;
+}
+
+.toc {
+	border: 1px solid black;
+	padding: 10px;
+	margin: 10px;
+	display: inline-block;
+}
+
+.toc ul {
+	list-style: none;
+	padding: 0;
+	margin: 10px;
+}
+
+table,td,th {
+	border-width: 1px;
+	border-style: solid;
+	border-spacing: 0px;
+	border-collapse: collapse;
+	padding: 5px;
+}
+
+pre {
+	border: 1px solid gray;
+	padding: 1em;
+	margin-left: 2em;
+	display: inline-block;
+}
+
+
+a:link:hover {
+	text-decoration: underline;
+}
+
+a {
+	text-decoration: none;
+}

@@ -1,0 +1,50 @@
+cmd_arch/arm/lib/getuser.o := arm-linux-gnueabihf-gcc -Wp,-MD,arch/arm/lib/.getuser.o.d  -nostdinc -isystem /car/2-lmp-mr1-tv-dev/prebuilts/gcc/linux-x86/arm/stb/stbgcc-4.8-1.2/bin/../lib/gcc/arm-linux-gnueabihf/4.8.4/include -I/car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include -Iarch/arm/include/generated  -Iinclude -I/car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/uapi -Iarch/arm/include/generated/uapi -I/car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/include/uapi -Iinclude/generated/uapi -include /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/include/linux/kconfig.h -D__KERNEL__ -mlittle-endian  -D__ASSEMBLY__ -mabi=aapcs-linux -mno-thumb-interwork -mfpu=vfp -funwind-tables -marm -D__LINUX_ARM_ARCH__=7 -march=armv7-a  -include asm/unified.h -msoft-float -Wa,--gdwarf-2         -c -o arch/arm/lib/getuser.o arch/arm/lib/getuser.S
+
+source_arch/arm/lib/getuser.o := arch/arm/lib/getuser.S
+
+deps_arch/arm/lib/getuser.o := \
+    $(wildcard include/config/cpu/use/domains.h) \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/asm/unified.h \
+    $(wildcard include/config/arm/asm/unified.h) \
+    $(wildcard include/config/thumb2/kernel.h) \
+  include/linux/linkage.h \
+  include/linux/compiler.h \
+    $(wildcard include/config/sparse/rcu/pointer.h) \
+    $(wildcard include/config/trace/branch/profiling.h) \
+    $(wildcard include/config/profile/all/branches.h) \
+    $(wildcard include/config/enable/must/check.h) \
+    $(wildcard include/config/enable/warn/deprecated.h) \
+    $(wildcard include/config/kprobes.h) \
+  include/linux/stringify.h \
+  include/linux/export.h \
+    $(wildcard include/config/have/underscore/symbol/prefix.h) \
+    $(wildcard include/config/modules.h) \
+    $(wildcard include/config/modversions.h) \
+    $(wildcard include/config/unused/symbols.h) \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/asm/linkage.h \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/asm/assembler.h \
+    $(wildcard include/config/cpu/endian/be8.h) \
+    $(wildcard include/config/cpu/feroceon.h) \
+    $(wildcard include/config/trace/irqflags.h) \
+    $(wildcard include/config/cpu/v7m.h) \
+    $(wildcard include/config/preempt/count.h) \
+    $(wildcard include/config/smp.h) \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/asm/ptrace.h \
+    $(wildcard include/config/arm/thumb.h) \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/uapi/asm/ptrace.h \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/asm/hwcap.h \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/uapi/asm/hwcap.h \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/asm/domain.h \
+    $(wildcard include/config/io/36.h) \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/asm/opcodes-virt.h \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/asm/opcodes.h \
+    $(wildcard include/config/cpu/endian/be32.h) \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/arch/arm/include/asm/asm-offsets.h \
+  include/generated/asm-offsets.h \
+  arch/arm/include/generated/asm/errno.h \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/include/uapi/asm-generic/errno.h \
+  /car/2-lmp-mr1-tv-dev/kernel/private/97xxx-bcm/linux/include/uapi/asm-generic/errno-base.h \
+
+arch/arm/lib/getuser.o: $(deps_arch/arm/lib/getuser.o)
+
+$(deps_arch/arm/lib/getuser.o):

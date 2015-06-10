@@ -1,0 +1,416 @@
+= Memory/VM on stblinux
+Broadcom Corporation <support@broadcom.com>
+v1.0, 2015-04-20: Converted to asciidoc.
+:toc:
+
+== Reserved A/V memory (BMEM)
+
+The A/V peripherals (managed by the PI/Nexus middleware) require a
+large, contiguous memory region.  This region is set aside by the
+Linux kernel at boot time, and managed entirely by PI/Nexus.  Linux
+provides the following capabilities with respect to BMEM regions:
+
+ * Allow the user to define the size and location of BMEM regions,
+subject to certain restrictions
+
+ * Allow `O_DIRECT` I/O from SATA and USB storage devices, to and
+from the BMEM region, to facilitate zero-copy data transfers (typically
+video streaming / PVR).
+
+ * Allow `mmap()` to these regions from user programs, and
+cached/uncached `ioremap()` to these regions from kernel drivers.
+
+Any portion of `ZONE_NORMAL` memory (non-HIGHMEM) on MEMC0 can be
+set aside as BMEM.
+
+
+MEMC1, by default, is all reserved memory (no Linux memory).  On some
+chips it is possible to partition MEMC1 between Linux memory and BMEM.
+This is accomplished with the `memc1=` parameter.  The `bmem=`
+parameter should never be used on a HIGHMEM region, either on MEMC0
+(which may be partially HIGHMEM) or MEMC1 (which is always HIGHMEM).
+
+Some examples of how to configure BMEM through the kernel command
+line:
+
+[cols="1l,3"]
+|==================================================================
+
+| bmem=64M@192M |
+Create a single BMEM region (bmem.0) at PA 0x0c00_0000, length
+0x0400_0000 (64MB).
+
+| bmem=64M@192M bmem=128M@512M |
+Same as above, plus create a second BMEM region (bmem.1) at PA
+0x2000_0000, length 0x0800_0000 (128MB).
+
+| bmem=64M@0x0c000000 bmem=128M@0x20000000 |
+Same as above.  Sometimes it is easier to specify the physical
+address directly.
+
+| [no options] |
+The default behavior is to create a single BMEM region ranging from
+64MB (0x0400_0000) up to the end of lower memory: 0x0fff_ffff or
+lower, depending on the system memory size.
+
+| memc1=64M |
+Use 64MB of MEMC1 as Linux memory, then if anything is left over,
+create another BMEM region.  This will always be the last BMEM region
+created.
+
+|==================================================================
+
+The application should read
+`/sys/devices/platform/brcmstb/bmem.*` to determine which BMEM
+regions have been created by the kernel.  Each `bmem.N` file
+contains the start address and length, in hex, separated by a space.
+
+BMEM regions are all created at boot time and cannot be altered later.
+
+Futexes, mutexes, etc. *may not* be created in BMEM regions.  Linux
+does not track this memory the same way as normal pages, and the results
+will be undefined.
+
+Applications must handle all cache coherency in BMEM regions.  This can
+be done with the `cacheflush()` syscall.
+
+== Kernel memory maps and large memory
+
+For systems with 256MB of RAM (or less), all physical memory starts at
+physical address 0 and is contiguous.  This is true for all BMIPS3300
+based chips.
+
+BMIPS438x/BMIPS5000 based chips can generally address more than 256MB of
+DRAM.  In this case, the memory above 256MB (known as "upper memory")
+starts at PA 0x2000_0000 instead of PA 0x1000_0000.  This is because the
+EBI and peripheral register region consumes 256MB at PA 0x1000_0000.
+Therefore, in order to support more than 256MB, it is necessary to enable
+`CONFIG_BRCM_UPPER_MEMORY` .
+
+This section will provide an overview of large memory handling under STB
+Linux.  Please refer to
+`arch/mips/include/asm/mach-brcmstb/spaces.h` for details on the
+exact locations.  `spaces.h` shows both physical and virtual address
+maps for all supported configurations.
+
+The 65nm MIPS cores use the following address map to handle 512MB of
+`ZONE_NORMAL` memory:
+
+
+----
+/*
+ * 512MB Broadcom 256+256 virtual address map
+ *
+ * 8000_0000 - 8fff_ffff: lower 256MB, cached mapping
+ * 9000_0000 - 9fff_ffff: EBI/registers, cached mapping (unused)
+ * a000_0000 - afff_ffff: lower 256MB, uncached mapping
+ * b000_0000 - bfff_ffff: EBI/registers, uncached mapping
+ * c000_0000 - cfff_ffff: upper 256MB, cached mapping
+ * d000_0000 - dfff_ffff: upper 256MB, uncached mapping
+ * e000_0000 - fffd_7fff: vmalloc region
+ * fffd_8000 - fffd_ffff: FIXMAP
+ *
+ * PA 3000_0000 and above are accessed through HIGHMEM (BMIPS5000 only).
+ */
+----
+
+The 512MB map uses wired TLB entries with 256MB pagemasks to create
+persistent mappings for both cached and uncached views of the upper
+256MB.  The standard kernel macros are modified slightly to skip the
+hole at PA 0x1000_0000.  From the kernel's perspective, upper memory
+is largely equivalent to lower memory.  (Contrast with HIGHMEM, in
+which high memory can never be used for `kmalloc()`, `skbuff`
+structures, etc.)
+
+The 40nm MIPS cores have a new "XKS01" feature which allows the kernel
+to access a full 1GB of memory without HIGHMEM:
+
+----
+/*
+ * 1024MB Broadcom 256+768 virtual address map
+ *
+ * 8000_0000 - 8fff_ffff: 256MB RAM @ 0000_0000, cached
+ * 9000_0000 - 9fff_ffff: 256MB EBI/Registers @ 1000_0000, uncached
+ * a000_0000 - cfff_ffff: 768MB RAM @ 2000_0000, cached
+ * d000_0000 - dfff_ffff: TBD
+ * e000_0000 - ff1f_7fff: vmalloc region
+ * ff1f_8000 - ff1f_ffff: FIXMAP
+ * ff40_0000 - ff7f_ffff: CONSISTENT region
+ *
+ * PA 5000_0000 and above are accessed through HIGHMEM (BMIPS5000 only).
+ */
+----
+
+XKS01 dramatically changes the way that kseg0 and kseg1 work.  For more
+details, please refer to the MIPS hardware module datasheet and
+`spaces.h` .
+
+Drivers should follow a few simple portability rules in order to work
+correctly on an XKS01 system:
+
+ 1. Do not assume that uncached access to physical memory is available
+via kseg1.  Instead, use `ioremap_nocache()` and let the kernel figure
+out how to provide the mapping.
+
+ 2. Do not assume that the system register space is at VA 0xb000_0000.
+
+ 3. Do not hard-code any kernel virtual addresses into the driver.
+
+HIGHMEM is another method that Linux can use to access larger amounts
+of physical memory.  HIGHMEM works by creating temporary kernel
+mappings to read or write upper memory.  Unfortunately, it is not
+feasible to use HIGHMEM on any MIPS processor that has cache aliases,
+because of the large number of cache flushes that would be required to
+maintain coherency.  For more information,
+http://www.linux-mips.org/wiki/Highmem"[see the linux-mips.org wiki
+entry on HIGHMEM].
+
+HIGHMEM is supported on BMIPS5000 since this CPU does not have cache
+aliases.  On 65nm BMIPS5000 chips, HIGHMEM is used for all memory
+above 512MB.  On 40nm BMIPS5000 chips, HIGHMEM is used for all memory
+above 1GB (MEMC0) and any Linux memory in MEMC1.
+
+All HIGHMEM and upper memory configurations have SPARSEMEM enabled by
+default.  SPARSEMEM saves 2MB-10MB of system memory by avoiding the
+creation of page descriptor (`struct page`) arrays for address space
+that falls into one of the memory holes.
+
+== Cache coherency
+
+On most MIPS implementations, cache coherency must be explicitly
+handled by software.  On stblinux, this generally means:
+
+ * After writing instruction code to memory, the data cache (D$) must
+   be flushed to write back the new instructions, then the instruction
+   cache (I$) must be flushed so that it picks up the new code from
+   memory or the L2.
+
+ * In cases where cache aliases may be created, they need to be
+   flushed out by the OS.  This problem affects systems with virtually
+   indexed caches in which the page size is smaller than the way size.
+
+ * Prior to a DMA operation, a D$ writeback/invalidate operation is
+   performed on a range that covers the DMA buffer.  This ensures that
+   dirty cache lines will not be written back during the DMA
+   operation, and that stale data is purged from the cache so that the
+   CPU sees the data written to the buffer by the device.
+
+ * On processors with external second-level (L2) caches, such as the
+   MIPS R34k, L2 cache lines will need to be manually flushed to
+   maintain coherency during DMA operations.  On processors with
+   integrated, exclusive L2 caches, such as BMIPS4380, this is not
+   necessary.
+
+The cacheflush() system call implementation has been enhanced on
+stblinux in order to provide finer-grained flushing to user-mode
+applications.  The default MIPS implementation flushes the entire cache,
+but often the middleware needs to flush a smaller range.
+
+BMIPS3300, BMIPS4380, and MIPS R34k cores in the Broadcom STB chips all
+exhibit cache aliases when using the standard 4kB page size.  For instance,
+on BMIPS4380, the D$ is 64kB and 4-way, so the way size is 16kB.  As long
+as the way size is larger than the page size, the OS will need to take
+steps to prevent cache aliases.
+
+BMIPS5000 does not have cache aliases.
+
+More information is available in `stblinux-2.6.37/Documentation/cachetlb.txt` .
+
+Bionic libc (Android) has a non-standard cacheflush implementation
+which calls `__clear_cache()` instead of the `cacheflush()` syscall.
+This should be avoided because it does not cause the proper flags to
+be passed to the kernel.
+
+== Multiple memory controllers
+
+Numerous STB chipsets have more than one memory controller (MEMC0,
+MEMC1, ...).  The way Linux handles this memory varies, depending on
+the chip architecture:
+
+1. On most existing non-UMA designs, MEMC1 (and MEMC2, ...) are not
+even accessible by the CPU.  Therefore, it is clear that any DRAM on
+MEMC1 will not be part of the Linux memory pool, and cannot be mapped
+into the process address space.  It is completely off limits except
+for use as an A/V buffer region by the PI.  Examples: 7400; 7405 in
+non-UMA mode.
+
+2. For chips that support UMA mode, all system memory is "symmetric"
+from a software perspective and can be allocated to Linux or PI as the
+user sees fit.  There are no restrictions on any region with regard to
+use by Linux.  Examples: 7405 in UMA mode; 7468/7550 (single MEMC).
+
+3. On some designs, MEMC1 is accessible to the CPU but it is only
+connected to the A/V clients.  It is *not* connected to Linux
+peripherals like USB, GENET, SATA, MOCA, or EDU.  Example: 7420.
++
+Due to this architectural limitation, it is not feasible to add this
+memory to the Linux memory pool because the Linux drivers would not
+know what to do if they were passed a pointer to DRAM that has no DMA
+access.  Many common operations (such as PVR) assume zero-copy
+transactions, and double-buffering is not an option.
++
+However, it *is* possible to map regions from MEMC1 into the process
+address space using `mmap()`.  They can be read and written from the
+CPU using cached or uncached (O_SYNC) accesses, but DMA operations
+such as direct I/O are prohibited.
+
+4. On other designs, MEMC1 is accessible to the CPU and to all of the
+Linux peripherals.  In cases like this, MEMC1 can be added to the
+Linux memory pool, and any BMEM regions of that memory can be accessed
+through `mmap()`.  Example: 7425.
++
+For case #3, `malloc()` and similar functions will only allocate RAM
+from the Linux memory pool on MEMC0.  However, the application can
+always map MEMC1 directly.  This program demonstrates how to write a
+simple allocator (`m1alloc()`) which uses MEMC1 instead of the Linux
+memory pool:
+
+----
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+
+#define MEMC1_START		0x60000000	/* for 7420 only */
+
+static void *m1alloc(unsigned int len)
+{
+	static int fd = -1;
+	static int page_size = 0;
+	unsigned long addr, n_bytes;
+	static void *free_ptr = (void *)MEMC1_START;
+
+	if (fd == -1)
+		fd = open("/dev/mem", O_RDWR);
+	if (!page_size)
+		page_size = getpagesize();
+	n_bytes = ((len + page_size - 1) / page_size) * page_size;
+	addr = (unsigned long)free_ptr;
+	free_ptr += n_bytes;
+	return mmap(NULL, n_bytes, (PROT_READ | PROT_WRITE | PROT_EXEC),
+		MAP_SHARED, fd, addr);
+}
+
+int main(int argc, char **argv)
+{
+	void *a, *b, *c;
+
+	a = m1alloc(4096);
+	b = m1alloc(10000);
+	c = m1alloc(1000);
+	printf("Allocated memory at %p, %p, %p\n", a, b, c);
+	return 0;
+}
+----
+
+The application must ensure that the MEMC1 regions it uses do not
+conflict with any regions in use by PI/Nexus or other processes/threads.
+These regions may not be used for `O_DIRECT` I/O or any other
+operation involving DMA to/from the Linux peripherals.
+
+== Overcommit
+
+The Linux kernel provides three options regarding memory overcommit.
+These are covered in
+`stblinux-2.6.37/Documentation/vm/overcommit-accounting` :
+
+----
+0	-	Heuristic overcommit handling. Obvious overcommits of
+		address space are refused. Used for a typical system. It
+		ensures a seriously wild allocation fails while allowing
+		overcommit to reduce swap usage.  root is allowed to 
+		allocate slighly more memory in this mode. This is the 
+		default.
+
+1	-	Always overcommit. Appropriate for some scientific
+		applications.
+
+2	-	Don't overcommit. The total address space commit
+		for the system is not permitted to exceed swap + a
+		configurable percentage (default is 50) of physical RAM.
+		Depending on the percentage you use, in most situations
+		this means a process will not be killed while accessing
+		pages but will receive errors on memory allocation as
+		appropriate.
+
+The overcommit policy is set via the sysctl `vm.overcommit_memory'.
+
+The overcommit percentage is set via `vm.overcommit_ratio'.
+----
+
+On most Linux systems, policy #0 (heuristic overcommit) is the
+default.  However, many embedded programmers prefer policy #2 because
+it is more deterministic and more closely resembles the behavior seen
+on other embedded systems (or under an RTOS).
+
+On Broadcom 2.6.18 kernels, policy #2 was the default unless swap was
+enabled.  On Broadcom 2.6.31 and 2.6.37 kernels, policy #0 is the
+default.
+
+When using policy #2, malloc() may return NULL even though there is
+still unused memory in the system.  Some ways to deal with this
+include:
+
+ * Increase the overcommit ratio.
+ * Change the per-process and/or per-thread stack size (see below).
+ * Switch to policy #0.
+
+When using policy #0, memory allocations may succeed even though there
+is insufficient physical memory to satisfy all outstanding
+allocations.  Physical memory is only requested when the memory is
+actually written to.  Therefore, seemingly innocuous events that may
+cause a fresh page to be dirtied (even pushing an extra word onto the
+stack) could trigger an out-of-memory (OOM) event.
+
+Sample commands for changing the overcommit policy and ratio:
+
+----
+# echo 0 > /proc/sys/vm/overcommit_memory
+# echo 60 > /proc/sys/vm/overcommit_ratio
+----
+
+== Stacks
+
+The default size for process/thread stacks under MIPS Linux is 8MB.  In the
+stblinux-2.6.18 kernel, this was reduced to 1MB.  On stblinux-2.6.31 and
+2.6.37, the default value is retained.  Therefore, if overcommit policy #2
+is used, the default stack size should be reduced, as the entire 8MB would
+be taken out of the physical memory pool for every process and thread
+otherwise.
+
+There are several ways to adjust the stack size:
+
+ * For pthreads, use the _attr_ argument to pthread_create() to
+   request a different stack size.
+ * The `ulimit -s` command may also be used to adjust the stack
+   allocated to the current process, and any children forked off
+   afterward.
+ * If `ulimit -s` is set to allow an unlimited stack size,
+   pthread_create() will default to 2MB (which is the
+   architecture-specific default hard-coded in uClibc).  Otherwise,
+   uClibc will use the `ulimit -s` setting for thread stacks.
+
+In the reference kernels, 8kB is allocated for the kernel stack and for the
+thread/task info structures on each process.  It may be possible to
+increase the kernel stack by modifying
+`stblinux-2.6.37/arch/mips/include/asm/thread_info.h` , although this is
+not officially supported.
+
+Sample code for adjusting the pthread stack size:
+
+----
+#include <pthread.h>;
+#include <limits.h>;
+
+pthread_t thread;
+pthread_attr_t attr;
+
+if(pthread_attr_init(&attr) != 0)
+	return(FALSE);
+if(pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN) != 0)
+	return(FALSE);
+if(pthread_create(&thread, &attr, start_routine, arg) != 0)
+	return(FALSE);
+----

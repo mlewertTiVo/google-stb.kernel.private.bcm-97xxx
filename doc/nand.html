@@ -1,0 +1,442 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+  <title>NAND Flash FAQ</title>
+  <link href="nand.css" rel="stylesheet" type="text/css">
+</head>
+<body>
+
+<div id="container">
+	<div id="header">
+		<img style="padding:15px;float:right"
+		src="http://home.irv.broadcom.com/~jquinlan/bin/.plib/resources/brcm_pulse.png"
+		alt="Broadcom pulse logo" width=150>
+		<h1>NAND Flash FAQ</h1>
+		<h2>Broadcom Application Note</h2>
+	</div>
+
+<div id="wrapper">
+<div id="content">
+	<p>
+	This FAQ describes many of the common pitfalls seen on our STB Linux
+	platforms with NAND (and other) flash. Some issues may be specific to a
+	particular kernel, so if you have any doubts, refer to the
+	documentation provided with your kernel.
+	</p>
+
+	<div class="toc">
+		<b>Table of contents:</b>
+		<ol>
+			<!-- BEGIN TOC -->
+			<li><a href="#cfe_rootfs">Can BOLT write Linux rootfs images to the flash?</a></li>
+			<li><a href="#part_map">How do I change the MTD partition map?</a></li>
+			<li><a href="#bbm">What is a bad block marker?</a></li>
+			<li><a href="#linux_badblocks">How does Linux handle bad blocks</a></li>
+			<li><a href="#where_flash_bbt">Where does Linux store its flash-based BBT?</a></li>
+			<li><a href="#reset_flash_bbt">How can I reset the flash-based BBT?</a></li>
+			<li><a href="#cfe_badblocks">How does BOLT handle bad blocks?</a></li>
+			<li><a href="#new_badblocks">How are new bad blocks discovered and marked?</a></li>
+			<li><a href="#nand_support">Is my NAND chip supported?</a></li>
+			<li><a href="#erase_badblocks">Do not erase bad blocks</a></li>
+			<li><a href="#linux_override">Why does Linux override my NAND configuration?</a></li>
+			<li><a href="#ubiroot">What happened to <tt>ubiroot</tt>?</a></li>
+			<li><a href="#Webflasher">Webflasher</a></li>
+			<li><a href="#Ref">More references</a></li>
+			<!-- END TOC -->
+		</ol>
+	</div>
+
+<hr align="center" width="300">
+
+<h3><a name="cfe_rootfs">Can BOLT write Linux rootfs images to the flash?</a></h3>
+
+<p>
+In general, no. For NAND, this would require moving GPLed BBT
+management code into the non-GPL CFE (BOLT is based on CFE), which is not permitted under the
+terms of the license. For anything based on UBI (UBIFS on NOR/NAND, or
+SQUASHFS on NAND), the same concern applies to the GPLed UBI code.
+</p>
+
+<p>
+In addition, CFE was never designed to understand Linux filesystems, and
+there is little reason to duplicate this functionality in BOLT since it
+is already present in the kernel. There are many complexities involved
+in duplicating this functionality. See
+<a href="http://www.linux-mtd.infradead.org/doc/ubi.html#L_flasher_algo">
+http://www.linux-mtd.infradead.org/doc/ubi.html#L_flasher_algo</a>.
+</p>
+
+<p>
+In the above documentation, you might notice the "free space fixup" workaround
+for UBIFS. Note that this workaround is not applicable to some rootfs
+configurations, as it is UBIFS-only, whereas some systems utilize SQUASHFS on
+top of UBI+gluebi for read-only rootfs.
+</p>
+
+<h3><a name="part_map">How do I change the MTD partition map?</a></h3>
+
+<p>
+By default, the MTD partition map is derived from the device tree (DT) as
+determined by BOLT. There are at least two different ways of customizing this
+map:
+</p>
+
+<ol>
+  <li>Modify the rootfs/kernel partition boundaries through the BOLT
+  compile-time configuration. Please refer to the BOLT documentation for more
+  information.</li>
+
+  <li>Use the <tt>cmdlinepart</tt> facility to specify the offset and size for
+  each partition on the kernel command line. Example:
+
+  <pre>boot HOST:PATH/vmlinuz-7425b0 "mtdparts=brcmnand.0:40M@16M(rootfs),4M(kernel),16M(app) $ROOTFS"</pre>
+
+  <p>
+To specify the partition map for the first NAND device, use
+  <tt>brcmnand.0</tt> . For the first NOR device, use
+  <tt>physmap-flash.0</tt> . For the first SPI device, use
+  <tt>spi0.0</tt> .
+  </p>
+
+  <p>
+  Replace <tt>$ROOTFS</tt> with the appropriate root filesystem parameters; see
+  <a href="#ubiroot">this FAQ</a> for more info.
+  </p>
+
+  <p>
+  Additional examples and documentation can be found in the comments in
+  <tt>drivers/mtd/cmdlinepart.c</tt> .
+  </p>
+</li>
+</ol>
+
+<h3><a name="bbm">What is a bad block marker?</a></h3>
+
+<p>
+A bad block marker (BBM) is a special pattern found in the out-of-band (OOB)
+region of each eraseblock to denote factory-detected bad blocks&mdash;and "worn
+out" bad blocks that may develop over time&mdash;in NAND flash.  For example,
+many NAND manufacturers' datasheets define a bad block marker as follows:
+</p>
+
+<blockquote>
+"Any block, where the 1st byte in the spare area of the 1st page does not
+contain FFh, is a bad block."
+</blockquote>
+
+<p>
+However, the exact BBM location tends to vary across different manufacturers
+and even across different products from the same manufacturer. For example, the
+pattern may be located in "the 1st or 2nd page" or "the last page" of each
+block. Both BOLT and Linux must know this location in order to properly detect
+factory-marked bad blocks and in order to consistently mark new ones as they
+develop.
+</p>
+
+<h3><a name="linux_badblocks">How does Linux handle bad blocks?</a></h3>
+
+<p>
+Linux&mdash;particularly, the MTD/NAND subsystem&mdash;performs efficient bad
+block handling by utilizing a bad block table (BBT). The BBT records the status
+of every block on the NAND chip, yielding a "good" or "bad" status. This table
+is built at boot-time (by scanning for factory-marked bad blocks as well as
+marked "worn out" blocks) then stored in memory to provide fast lookup.
+</p>
+<p>
+In the current Broadcom STB NAND driver (2.6.37 and newer), this table is also
+replicated within the flash (a.k.a. "flash-based BBT") so that when Linux can
+find a valid table on the flash, it does not have to rescan the entire chip for
+bad blocks on every boot. The flash-based BBT configuration option is selected
+by default due to significant performance benefits when used on large NAND
+flash. For example, a rough timing measurement on a Micron 4GB MLC NAND shows
+that a flash-based BBT can decrease NAND initialization time from 2.6 seconds to
+about 0.3 seconds.
+</p>
+<p>
+Flash-based BBT can be disabled entirely by removing the following NAND BBT
+options from the driver (<tt>drivers/mtd/nand/brcmstb_nand.c</tt>):
+</p>
+<ul>
+	<li><tt>NAND_BBT_USE_FLASH</tt>: Store the bad block table in a
+	designated area of the flash. Enabled by default.</li>
+	<li><tt>NAND_BBT_NO_OOB</tt>: Do not use the OOB when storing the bad
+	block table identifier. Must be used with <tt>NAND_BBT_USE_FLASH</tt>.
+	Enabled by default.</li>
+</ul>
+
+<h3><a name="where_flash_bbt">Where does Linux store its flash-based BBT?</a></h3>
+
+<p>
+Broadcom's reference kernel releases utilize a flash-based bad block table (BBT)
+which is stored at the end of the NAND device. Linux reserves the last four
+blocks of the device, using two of them for storing mirrored copies of the
+BBT&mdash;the other two are reserved in case one of the reserved blocks wears
+out. These blocks appear as bad blocks to the system, so that Linux applications
+and filesystems cannot accidentally erase them; however, they do not have (nor
+do they require) any special marking outside of Linux and will appear as normal
+blocks. Non-Linux applications (e.g., factory programmers) should avoid placing
+crucial data in this region, as Linux will simply erase the data in order to
+write a new BBT.
+</p>
+<p>
+<strong>Example BBT size calculation:</strong> on a device with eraseblock size 512KB, Linux will reserve:
+</p>
+<p align="center">
+<tt>512 KB x 4 blocks = 2 MB</tt>
+</p>
+<p>
+Note that this feature is different than in Broadcom's STB Linux 2.6.31, where
+the system required a special BBT partition.
+</p>
+
+<h3><a name="reset_flash_bbt">How can I reset the flash-based BBT?</a></h3>
+
+<p>
+Currently, the only supported way to reset the flash-based bad block table is
+from outside of Linux, by erasing the BBT area (see <a
+href="#where_flash_bbt">Where does Linux store its flash-based BBT?</a>). In other words,
+you can discard the bad block table by erasing the last 4 blocks of the device
+(or the entire flash) using a BOLT hack, Broadband Studio, or
+<a href="#Webflasher">Webflasher</a> (if available). Once the flash-based BBT is
+erased, Linux will rebuild the bad block table by scanning the bad block markers
+found in each block's OOB region next time it boots.
+</p>
+
+<h3><a name="cfe_badblocks">How does BOLT handle bad blocks?</a></h3>
+
+<p>
+To detect bad blocks in NAND, BOLT only checks the OOB of each block, looking for
+a bad block marker. It does not understand Linux's bad block table format,
+in part due to GPL license incompatibility.
+</p>
+
+<p>
+<em>Issue: newly-marked bad blocks from BOLT will not be included in Linux's flash-based BBT</em>
+</p>
+
+<p>
+Synchronizing BOLT's newly-marked bad blocks with Linux's BBT is currently not
+simple. There are simpler kernel-related solutions in the works, but for now you
+have the following options:
+</p>
+
+<ol>
+	<li><a href="#linux_badblocks">disable Linux's flash-based BBT</a></li>
+	<li>don't perform flash updates from BOLT (and hence, never mark bad
+	blocks from BOLT)</li>
+	<li>force BOLT to erase Linux's flash-based BBT every time it marks a new
+	bad block (see <a href="#reset_flash_bbt">How can I reset the flash-based BBT?</a>)
+	</li>
+</ol>
+
+<h3><a name="new_badblocks">How are new bad blocks discovered and marked?</a></h3>
+
+<p>
+Besides initial bad blocks marked at factory production time, a NAND chip may
+develop bad blocks over time due to wear. These may be detected in different
+contexts and may be handled differently in, for instance, <a href="#cfe_badblocks">BOLT</a>
+and <a href="#linux_badblocks">Linux</a>.
+</p>
+
+<p>
+<strong>BOLT:</strong> New bad blocks may be marked when a program operation
+fails. New bad blocks are marked in the OOB region of the affected block. As BOLT
+cannot understand Linux's bad block table format, this can cause incompatibility
+with Linux.
+</p>
+
+<p>
+<strong>Linux:</strong> New bad blocks can be discovered as a result of failed
+write or erase operations or when a complex filesystem layer such as UBI notices
+too many accumulated bitflips which cannot be resolved by "scrubbing." When
+flash-based BBT is disabled, a new bad block is marked only in the bad block's
+OOB region. When flash-based BBT is enabled, the new bad block is marked in the
+on-flash BBT region. As of STB Linux 2.6.37-2.9, Linux will mark new bad blocks
+in <b>both</b> the flash-based BBT and the OOB bad block marker by default. This
+allows BOLT to recognize bad blocks marked from Linux. Note that the reverse is
+not true; when using flash-based BBT, Linux may not recognize new bad blocks
+marked by BOLT and may treat them as good blocks until they are marked in
+Linux's BBT.
+</p>
+
+<p>
+See also the following, regarding bad blocks:
+</p>
+<ul>
+	<li><a href="#cfe_badblocks">How does BOLT handle bad blocks?</a></li>
+	<li><a href="#linux_badblocks">How does Linux handle bad blocks?</a></li>
+	<li><a href="http://www.linux-mtd.infradead.org/doc/ubi.html#L_torturing">
+		UBI: marking eraseblocks as bad</a></li>
+</ul>
+
+<h3><a name="nand_support">Is my NAND chip supported?</a></h3>
+
+<p>
+Broadcom does not form an official list of supported NAND flash. However, we do
+get a significant amount of test coverage on a few specific NAND: the NAND flash
+found on our reference boards. Generally, ONFI-compliant NAND are supported, as
+well as most SLC NAND with 2KB page size that follow standard ID encoding
+practices, such as those found in the datasheet for Samsung K9F2G08U0C.
+Specifically, the following have received wide test coverage:
+</p>
+<ul>
+	<li>(MLC) Micron MT29F32G08CBACA</li>
+	<li>(SLC) Samsung K9F2G08U0C
+</ul>
+<p>
+For other flash, please direct questions&mdash;with part number and datasheet
+provided&mdash;to our engineering staff. Also note that for best results,
+engineers prefer to have a sample chip to test against.
+</p>
+
+<h3><a name="erase_badblocks">Do not erase bad blocks</a></h3>
+
+<p>
+This is not a question, but it deserves its own space.
+</p>
+<p>
+In almost all cases, blocks that are already marked bad should not be erased,
+so that existing bad-block mark indicators are preserved. There are a few
+reasons for this, as follows:
+</p>
+<p>
+NAND manufacturers have sophisticated test systems on their production lines to
+check devices for bad blocks. The process includes testing over voltage and
+temperature. They are able to find marginally-bad blocks that erase/program
+fine at room temperature and nominal voltage, but would fail to erase or
+program in a temperature or voltage corner - or they could quickly turn into a
+bad block after just a few erase/program cycles. In other words, the
+manufacturers' ability to identify bad blocks is much better than software
+erase/write cycles at nominal conditions.
+</p>
+<p>
+Note that Linux, BOLT, Broadband Studio, <a href="#Webflasher">Webflasher</a>,
+and any other reasonable system that works with NAND flash all have their own
+protections to prevent erasure of bad blocks, by checking for bad block markers
+in the OOB region and/or building bad block tables, but these protections
+occasionally have backdoors to allow for special development needs. Please think
+twice before indiscriminately erasing bad blocks.
+</p>
+
+<h3><a name="linux_override">Why does Linux override my NAND configuration?</a></h3>
+
+<p>
+This is one of the most common types of issues we see in customer projects
+using NAND. Sometimes, a message like the following will turn up in the Linux
+boot log:
+</p>
+
+<pre>
+brcmnand brcmnand.0: overriding bootloader settings on CS1
+brcmnand brcmnand.0: was: 16MiB total, 16KiB blocks, 512B pages, 16B OOB, 8-bit, BCH-4
+brcmnand brcmnand.0: now: 4096MiB total, 1024KiB blocks, 4KiB pages, 27B OOB, 8-bit, BCH-24 (1KiB sector)
+</pre>
+
+<p>
+This message should alert the developer that the bootloader did not configure
+NAND correctly, and so Linux is providing its own configuration. This
+misconfiguration can have important ramifications which, if ignored, can cause
+various problems, including ECC errors, an inability for Linux to read data
+written by BOLT, and more. Any time these messages appear in a log, no guarantees
+can be made about ANY future NAND activity.
+</p>
+
+<p>
+On a typical platform, it is the responsibility of the bootloader (i.e., BOLT)
+to provide an initial working configuration for any NAND flash present on the
+board. That way, the bootloader can perform basic operations on NAND&mdash;such
+as loading or flashing a kernel&mdash;effectively, while later passing control
+off to Linux. However, CFE historically has often failed to configure NAND
+correctly, especially during early development, and it never compensated for an
+incorrect <tt>boot_shape</tt> strap. BOLT improves this situation through more
+accurate detection and configuration logic.
+</p>
+
+<p>
+Still, any misconfiguration mismatch between BOLT and Linux can lead to problems&mdash;subtle or
+otherwise&mdash;and so our Linux driver, with the help of sophisticated NAND
+detection routines provided by the MTD subsystem, chooses to validate any
+bootloader-provided settings before accepting them. At boot-time, it detects the
+NAND either via ONFI parameter parsing or decoding the NAND chip ID (via
+<tt>READID</tt> command) checks a number of different NAND configuration
+parameters (found in the appropriate <tt>NAND_CONFIG</tt> and
+<tt>NAND_ACC_CONTROL</tt> registers), and a mismatch in any one of them may
+cause the driver to invalidate the entire bootloader configuration and replace
+it with its own.
+</p>
+
+<p>
+So, to provide a correct configuration to Linux and to avoid the need for Linux
+to override your settings, please check your NAND datasheet and ensure that the
+bootloader is configuring all of the following settings correctly:
+</p>
+<ul>
+	<li>total device size</li>
+	<li>block size</li>
+	<li>page size</li>
+	<li>out-of-band (OOB) / spare area size</li>
+	<li>bus width (x8 or x16)</li>
+	<li><tt>BLK_ADR_BYTES / COL_ADR_BYTES / FUL_ADR_BYTES</tt> (see
+	<tt>NAND_CONFIG</tt> register in RDB)</li>
+</ul>
+<p>
+If you still see the "overriding" message after correcting all of these values,
+then there may be a bug in the Linux NAND detection routines. In this case,
+please file a bug report with a full boot log, NAND part number, and NAND
+datasheet provided.
+</p>
+
+<h3><a name="ubiroot">What happened to <tt>ubiroot</tt>?</a></h3>
+  <p>
+  On Linux 3.3 and earlier, our STB Linux platforms provided a shortcut boot
+  paramter <tt>ubiroot</tt> for booting with a UBIFS root filesystem. This
+  shortcut is no longer available as of Linux 3.8. To get the correct boot
+  parameters for your board, please run the <tt>stbutil</tt> utility (in
+  Linux); upon completion, it will provide you with your boot arguments.
+  </p>
+
+  <p>
+  In the future, we hope to implement a new installation procedure that can
+  simplify this process.
+  </p>
+
+
+<h3><a name="Webflasher">Webflasher</a></h3>
+<p>
+The Webflasher project is a Broadcom-internal project intended for simple,
+reliable handling of many aspects related to flash on STB products. It can
+handle writing images, erasing, or total (unsafe) erasing of most NAND flash as
+well as SPI-NOR flash.
+Please note that (as of 11/26/13) Webflasher is only supported for
+Broadcom-internal use. Customers will still have to utilize Broadband Studio
+for basic flashing needs.
+</p>
+<p>
+To use Webflasher, you need an EJTAG probe fitted with a Webflasher firmware
+image and connected to the Broadcom network. Then you can perform flashing over
+network via the Webflasher main page:
+</p>
+<ul>
+	<li><a href="http://webflash.broadcom.com/">Webflasher main site</a></li>
+	<li><a href="http://twiki-01.broadcom.com/bin/view/Linux/EjtagDebugger#How_to_get_my_probe">How to get an EJTAG probe</a>
+	<li><a href="http://twiki-01.broadcom.com/bin/view/Linux/EjtagDevelopment">EJTAG prode development Twiki</a></li>
+</ul>
+
+<h3><a name="Ref">More references</a></h3>
+
+<p>
+For further reading on the Linux MTD, NAND, JFFS2, UBI, and UBIFS filesystems and
+subsystems, see the documentation and FAQs at:
+<a href="http://linux-mtd.infradead.org/">http://linux-mtd.infradead.org/</a>
+</p>
+
+</div>
+</div>
+
+<div id="footer"><p>&nbsp;</p></div>
+
+</div>
+
+</body>
+</html>

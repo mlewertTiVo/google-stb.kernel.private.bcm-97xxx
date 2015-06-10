@@ -1,0 +1,243 @@
+= Interface between GENET driver, Linux kernel and Apps
+Broadcom Corporation <support@broadcom.com>
+v1.0, 2015-04-20: Converted to asciidoc.
+
+== Introduction
+
+The Linux driver for the new GENET core has been re-designed to
+incorporate the new HW features, such as ring buffers, Tx/Rx checksum
+offloading, Tx scatter-gather, etc. The current GENET driver is shared
+among new chips with GENET core, currently, 7420C0/7342A0/7340A0.  The
+driver is compatible with linux kernel 2.6.31 only, due to the
+dramatic kernel API changes from 2.6.18.
+
+Comparing to previous UniMac driver, some major code cleanup/redesign
+have been made, the following section explains these changes and also
+provide some recommendation/restriction on utilizing the new HW
+features, from integration point of view.
+
+== Descriptor based Tx/Rx
+
+The GENET still provides descriptor based Tx/Rx mechanism. Only that
+the GENET use producer/consumer index as programming model for
+DMA. All normal Ethernet traffic will go through descriptor based DMA
+path. By default, the driver only initialize Tx/Rx ring 16, which is
+the descriptor based rings.
+
+=== Descriptor Rx
+
+The function `bcmgenet_desc_rx()` is the function that handles
+descriptor based Rx. This function can be called from:
+
+ * NAPI polling function bcmgenet_poll().
+
+ * Interrupt handler bcmgenet_isr0().
+
+If the driver is compiled with =CONFIG_BCMGENET_RX_DESC_THROTTLE=,
+then NAPI will be disabled and =bcmgenet_desc_rx()= will be called
+directly from interrupt handler. However, in this case, the GENET
+doesn’t produce interrupt for each packet, instead it will assert
+interrupt according to the programmed threshold value, the value is
+defined by =DMA_DESC_THRES= which is =4= by default. The hope is to
+reduce interrupt rate by using Hardware throttling, instead of using
+NAPI, which is software throttling mechanism.
+
+Another change on the Rx path is that SKB pre-allocation/recycling has
+been removed.
+
+=== Descriptor Tx
+
+The function `bcmgenet_xmit()` is the transmit function, comparing
+with UniMac/EMAC driver, a major difference is the xmit function now
+support scatter-gather via kernel stack.  To enable scatter-gather
+I/O, Tx checksum offloading must be enabled at the same time,
+otherwise, the kernel stack has to linearize the fragmented SKB and
+compute the checksum, which doesn’t save anything.
+
+==== Scatter-Gather I/O
+
+Scatter-Gather I/O is handled in `bcmgenet_xmit()` function by looking
+at the `skb_shinfo(skb)->nr_frags` field. The kernel stack creates
+fragmented skb, if it finds out the device support scatter-gather and
+checksum offloading (`dev->features` flag `NETIF_F_SG` and
+`NETIF_F_IP_CSUM` are set), kernel also maps the scattered page info
+into `skb_shinfo(skb)->dma_maps[]` array, therefore, the device driver
+will loop through each fragmented skb and submit each `dma_maps[i]`
+into BD.
+
+==== Zero Copy
+
+Because of the SG and CSUM feature, the device support zero-copy on tx
+through kernel stack, e.g.
+----
+sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
+----
+should work on the TCP or UDP socket.
+
+== Ring Buffer
+
+GENET provides 16 ring buffers (ring 0 to 15) for Tx/Rx besides the
+Tx/Rx descriptor (which is ring 16), each ring has individual rate
+limiting capability. The size of the ring and the buffer of each ring
+are programmable, however, each ring has to be a continues chunk of
+memory. Although the ring buffer are designed for streaming
+application, but it would be beneficial if the Linux kernel stack can
+also leverage the ring buffer, particularly on Tx, such that we could
+have HW based QoS support. The next revision of GENET will have the
+capability to configure each ring to be a ring buffer or descriptor,
+that will solve the kernel stack integration problem. The current
+design has following limitation:
+
+ * On Tx, kernel stack can NOT use ring buffer, because of the fixed
+   SKB memory requirement.
+
+ * No Scatter-gather I/O on Tx ring buffer either, because the frame
+   stat handling issue for ring buffer. (EOP/SOP must appear in the
+   same frame, otherwise GENET assume it’s a jumbo frame).
+
+ * On Rx, driver can NOT update consumer index right after packet have
+   been moved from MAC to ring buffer, instead it has to check if the
+   current packet has been consumed by upper level App before updating
+   consumer index, the experimental iperf test show bad Rx performance
+   on ring buffer.
+
+=== Experimental Ring buffer related functions
+
+==== Mapping between skb and ring buffer
+
+`skb->queue_mapping` is used by kernel stack for SW QoS purpose, we
+can borrow this field for ring buffer use.
+
+On Rx, every packet pushed up to the kernel will have this field set
+with the ring index.
+
+On Tx, if skb is used, and packet is going through kernel stack,
+before delivering packet to xmit function, this field should be set to
+ring index, the driver implemented `select_queue()` function which
+simply return the `skb->queue_mapping` field. So the xmit function
+will send the skb to corresponding ring buffer to xmit.
+
+==== Ring buffer support functions
+
+Some experimental functions are implemented on the driver and limited
+functional test on ring buffer were performed. The following functions
+are exported symbols:
+
+----
+int bcmgenet_init_ringbuf(struct net_device * dev, int direction,
+                          unsigned int index, unsigned int size,
+                          int buf_len, unsigned char ** buf);
+----
+This function is used to initializes and enable Tx/Rx ring buffers.
+
+Arguments description:
+
+ * *dev*: Network device.
+ * *direction*: Direction of the ring buffer, (GENET_ALLOC_TX_RING /
+   GENET_ALLOC_RX_RING).
+ * *size*: The size of the ring.
+ * *buf_len*: length of the elementary buffer.
+ * *buf*: If *buf == NULL, the buffer will be allocated by this
+   function, otherwise, caller provide a pre-allocate buffer for this
+   ring.
+ * *return value*: 0 on success or < 0 on failure.
+
+----
+int bcmgenet_uninit_ringbuf(struct net_device * dev, int direction,
+                            unsigned int index, int free);
+----
+
+This function is used to cleanup and disable an Tx/Rx ring buffer.
+
+Arguments description:
+
+ * *dev*: Network device.
+ * *direction*: Direction of the ring buffer, (GENET_ALLOC_TX_RING /
+   GENET_ALLOC_RX_RING).
+ * *free*: flag to indicate if the buffer should be freed by this
+   function.
+
+---- 
+int bcmgenet_update_hfb(struct net_device *dev, unsigned int *data, int len, int user);
+----
+
+This function is used to setup/enable HFB (Hardware Filter Block).
+
+Arguments description:
+
+ * *dev*: Network device.
+ * *data*: Filter content data, see bellow description.
+ * *len*: Filter content word length.
+ * *user*: if it’s non-zero, indicates the function is called from
+ * *user* application(via ioctl call).
+ * *return value*: if successful, the function returns the filter
+   index that this pattern was written into, otherwise return negative
+   value.
+
+Format of HFB content: +
+Each HFB data is 32 bits long, with bit 0-15 is the pattern data, bit
+16-19 is the pattern mask and bit 20-32 is unused, for example, if we
+want the filter to match packet DA “00:10:18:11:D2:E8”, then the HFB
+data should looks like:
+
+    0x000F0010
+    0x000F1811
+    0x000FD2E8
+
+The length value passed into this function should be 3, which is 3
+word long.
+ 
+----
+struct sk_buff * bcmgenet_alloc_txring_skb(struct net_device * dev, int index);
+----
+
+This function is used by app to allocate Tx SKB for ring buffer, if an
+SKB is desired by app.
+
+Arguments description:
+
+ * *dev*: Network device.
+ * *index*: Ring index.
+ * *return value*: Allocated skb.
+
+*NOTE*: The corresponding ring must has been initialized prior calling
+ this function.
+
+=== Two ring buffer Tx/Rx functions
+
+----
+unsigned int bcmgenet_ring_rx(void * ptr, unsigned int budget)
+----
+
+This function is an _**internal**_ function, and will be called by
+NAPI polling method to handle Rx for ring buffer, currently the
+implementation push the rx packet into linux kernel stack.
+
+----
+bcmgenet_ring_xmit(struct sk_buff * skb, struct net_device * dev,
+                   int index)
+----
+
+This function is currently not exported. The design goal was to use
+standard `bcmget_xmit()` for all xmit function, and it will check the
+`skb->queue_mapping` field to determine if the packet should go to
+descriptor or a particular ring buffer, if it will go to ring buffer,
+then `bcmget_ring_xmit()` will be invoked.
+
+== Other topics
+
+Some ethtool commands are used to turn on/off the new features, they are:
+
+Tx/Rx checksum offloading:
+
+    ethtool –k eth0 tx <on|off>
+    ethtool –k eth0 rx <on|off>
+
+Scatter-Gather:
+
+    ethtool –k eth0 sg <on|off>
+
+Wake-on-LAN (magic packet):
+
+   ethtool –s eth0 wol g  # put in WoL mode
+   ethtool –s eth0 wol d  # disable WoL mode

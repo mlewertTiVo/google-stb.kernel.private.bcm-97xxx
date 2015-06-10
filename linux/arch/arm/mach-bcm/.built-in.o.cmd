@@ -1,0 +1,1 @@
+cmd_arch/arm/mach-bcm/built-in.o :=  arm-linux-gnueabihf-ld -EL    -r -o arch/arm/mach-bcm/built-in.o arch/arm/mach-bcm/brcmstb.o arch/arm/mach-bcm/cma_driver.o arch/arm/mach-bcm/headsmp-brcmstb.o arch/arm/mach-bcm/platsmp-brcmstb.o arch/arm/mach-bcm/pci-brcmstb.o 

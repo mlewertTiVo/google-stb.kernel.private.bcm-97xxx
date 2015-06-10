@@ -1,0 +1,392 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1" />
+  <title>STB Linux Toolchain</title>
+  <link href="styles.css" rel="stylesheet" type="text/css" />
+</head>
+
+<body>
+
+<div class="top">
+<h1>STB Linux Toolchain</h1>
+<b>Broadcom Application Note</b>
+</div>
+
+<div class="toc">
+  <b>Table of contents</b>
+<!-- TOC START -->
+    <ul>
+      <li><a href="#h_stbgcc_4_8_toolchains">stbgcc 4.8 toolchains</a>
+        <ul>
+          <li><a href="#h_Building_stbgcc_4_8">Building stbgcc 4.8</a>
+            <ul>
+              <li><a href="#h_Building_the_toolchain_using_Vagrant">Building the toolchain using Vagrant</a></li>
+              <li><a href="#h_Manually_configuring_a_build_machine">Manually configuring a build machine</a></li>
+            </ul>
+	  </li>
+          <li><a href="#h_RPM_building_crash_course">RPM-building crash course</a></li>
+          <li><a href="#h_Installation">Installation</a></li>
+        </ul>
+      </li>
+      <li><a href="#h_Floating_point_support">Floating point support</a></li>
+      <li><a href="#h_uClibc_support">uClibc support</a></li>
+    </ul>
+<!-- TOC END -->
+</div>
+
+<h2><a name="h_stbgcc_4_8_toolchains">stbgcc 4.8 toolchains</a></h2>
+
+<p>The stbgcc-4.8 toolchains, optional for 3.8-2.0+, bring in eglibc to
+replace uClibc with a faster, more complete C library
+implementation.  It uses the gcc 4.8 release series, which provides
+much improved printing of errors and warnings to help with debugging,
+experimental support for C++11, and several optimizer improvements,
+including polyhedral optimization for nested loops and a new general
+optimization option <tt>-Og</tt> for fast compilation and debugging.
+Starting with stbgcc-4.8-0.5,
+<a href="https://code.google.com/p/address-sanitizer/">AddressSanitizer</a>
+is supported for ARM targets.</p>
+
+<p>Primary contents of the stbgcc-4.8-1.2 release:</p>
+
+<ul>
+  <li>Linaro GCC 4.8-2014.11</li>
+  <li>Linaro eglibc 2.24-2013.10</li>
+  <li>Linaro binutils 2.24-2014.11</li>
+  <li>Linaro GDB 7.7.1-2014.06-1</li>
+  <li>Linux 3.8 kernel headers</li>
+</ul>
+
+<p>The stbgcc toolchains are composed of these files (where x, y, and
+z are replaced with the corresponding version numbers):</p>
+
+<ul>
+  <li><tt>stbgcc-4.8-x.y.src.rpm</tt> - Source code and build script,
+in RPM format </li>
+  <li><tt>stbgcc-4.8-x.y.tar.bz2</tt> - Binary tarball for non-RPM
+systems </li>
+  <li><tt>stbgcc-4.8-x.y.i386.rpm</tt> - Binary RPM </li>
+</ul>
+
+<h3><a name="h_Building_stbgcc_4_8">Building stbgcc 4.8</a></h3>
+
+<p>To simplify reproducing a working toolchain build environment,
+Broadcom provides a prebuilt image that can be automatically set up
+using Vagrant.  This is the best way to start building toolchains
+right away.</p>
+
+<p>Alternatively, the old method of configuring your own machine as a
+build system.</p>
+
+<h4><a name="h_Building_the_toolchain_using_Vagrant">Building the toolchain using Vagrant</a></h4>
+
+<p>In order to build the toolchain using Vagrant, please install
+<a href="https://www.virtualbox.org/">Virtualbox</a> and
+install <a href="http://www.vagrantup.com/">Vagrant</a>, then
+download <a href="toolchain_files/vagrant.zip">vagrant.zip</a> and
+unpack the archive.  Inside the resulting directory, there should be a
+file named Vagrantfile.  The directory containing the Vagrantfile will
+be considered the "top-level vagrant directory" here. Copy the source
+RPM (For release x.y, this is stbgcc-4.8-x.y.src.rpm) into the
+top-level vagrant directory and run
+<code>vagrant up</code>; this will download, configure, and start the
+virtual machine.</p>
+
+<p>Once the VM is configured, launch the VM shell by running
+<code>vagrant ssh</code>, then start the build:</p>
+
+<pre>
+$ vagrant ssh
+Welcome to Ubuntu 12.04 LTS (GNU/Linux 3.2.0-23-generic-pae i686)
+
+ * Documentation:  https://help.ubuntu.com/
+Welcome to your Vagrant-built virtual machine.
+Last login: Tue Mar 11 23:41:35 2014 from 10.0.2.2
+vagrant@precise32:~$ bash build-toolchain.sh --first-run
+</pre>
+
+<p>The option <code>--first-run</code> tells the script to unpack the
+source RPM.</p>
+
+<p>Once the build is complete, log out of the VM.  The
+directory <code>out</code> will contain the toolchain RPMs and
+tarball.</p>
+
+<pre>
+$ cd vagrant/
+$ ls
+out  bootstrap.sh  build-toolchain.sh  Vagrantfile
+$ ls out
+stbgcc-4.8-1.0.i386.rpm  stbgcc-4.8-1.0.src.rpm  stbgcc-4.8-1.0.tar.bz2
+</pre>
+
+<p>The RPM build directory in the VM is located
+in <code>/home/vagrant/rpmbuilds</code>.  To customize your toolchain,
+edit the contents of <code>SPECS/stbgcc-4.8.spec</code> and
+the <code>SOURCES</code> folder as necessary.</p>
+
+<p>When done with the VM, run "vagrant destroy" to clean up your VM
+(this will not delete the output directory containing the built
+toolchains).  See the <a href="http://docs.vagrantup.com/">Vagrant
+docs</a> for more info on using Vagrant.</p>
+
+<h4><a name="h_Manually_configuring_a_build_machine">Manually configuring a build machine</a></h4>
+
+<p>Broadcom builds the stbgcc-4.8 toolchain on an Ubuntu 12.04 LTS IA32
+system.  In order to enable compatibility across multiple
+distributions, the toolchains are built using headers and library
+stubs from the
+<a href="http://www.linuxfoundation.org/collaborate/workgroups/lsb">Linux Standard Base</a>
+(LSB) SDK.  The targeted specification is 
+<a href="http://refspecs.linuxfoundation.org/LSB_3.0.0/">LSB 3.0</a> and
+compatibility is verified by using the
+<a href="http://ispras.linuxbase.org/index.php/About_Linux_Application_Checker">LSB Linux App Checker</a>.
+The toolchain has been determined to be compatible with Red Hat
+Enterprise 4 and above, as well as all other tested distributions released
+since RHEL 4, but testing has so far been limited to RHEL 4, RHEL 5, RHEL 6,
+Ubuntu 12.04, and Ubuntu 13.04.</p>
+
+<p>Download and install the LSB SDK from the
+<a href="http://www.linuxfoundation.org/collaborate/workgroups/lsb">Linux
+Standard Base website</a>.</p>
+
+<p>The distributed binaries of stbgcc-4.8 use the hard float ABI.
+The toolchain can also be built for soft float (or alternative softfp
+on ARM), but most recent Broadcom STB products have a hardware FPU and would
+not benefit from a soft float toolchain (see
+<a href="#h_Floating_point_support">Floating point support</a>).</p>
+
+<p>In order to build the toolchain on Ubuntu 12.04, the following
+packages must be installed in addition to the LSB SDK:</p>
+<ul>
+  <li>build-essential</li>
+  <li>gawk</li>
+  <li>lsb</li>
+  <li>pkg-config</li>
+  <li>rpm</li>
+  <li>texinfo</li>
+  <li>ncurses-dev (required for gdb)</li>
+</ul>
+
+<p>These can be installed using</p>
+
+<pre>sudo apt-get install build-essential gawk lsb ncurses-dev pkg-config texinfo</pre>
+
+<p>In order to build the toolchain on RHEL 6, the "Development Tools"
+group must be installed.  In order to build gdb, ncurses-devel is also
+required.  These can be installed by running the following:</p>
+
+<pre>yum groupinstall 'Development Tools' &amp;&amp; yum install ncurses-devel</pre>
+
+<p>Broadcom supports installing the sources and building the toolchain as
+a non-root user on Ubuntu 12.04 LTS and RHEL 5 and 6 (CentOS 5 and 6
+should also work).</p>
+
+<p>The following instructions assume you want to
+use <tt>$HOME/rpmbuilds</tt> as your RPM build directory:</p>
+
+<pre>
+# first-time setup
+MY_RPM_BUILD_DIR="$HOME/rpmbuilds"
+echo "%_topdir $MY_RPM_BUILD_DIR" >> $HOME/.rpmmacros
+
+# install the source RPM to your rpm build dir
+rpm -i stbgcc-4.8-x.y.src.rpm
+
+# Use one of the following, depending on distribution.
+# If you want to speed things up, try adding the option '--with parallel'.
+cd $MY_RPM_BUILD_DIR
+rpmbuild -ba --nodeps --define '_tmppath /tmp' SPECS/stbgcc-4.8.spec 2&gt;&amp;1 | tee BUILD/buildlog  # Debian/Ubuntu
+rpmbuild -ba --define '_tmppath /tmp' SPECS/stbgcc-4.8.spec 2&gt;&amp;1 | tee BUILD/buildlog  # RHEL/CentOS
+
+# Go do something else while you wait for the build to finish (takes
+# an hour using '--with-parallel' on a fast machine when building for
+# both mips and arm)
+
+# It's done!  Install the toolchain to /opt/toolchains:
+rpm -ivh RPMS/stbgcc-4.8-x.y.i386.rpm
+</pre>
+
+<p>To learn more, including how to create a binary tarball to use
+instead that you can place wherever you want, please see the
+<a href="#h_RPM_building_crash_course">RPM-building crash course</a>.</p>
+
+<p>Finally, here's an example of how you would build the kernel and
+rootfs, using the 3.14-1.1 release with the stbgcc-4.8-1.0 toolchain,
+for BCM7445:</p>
+<pre>
+tar -jxf /tmp/uclinux-rootfs-3.14-1.1.tar.bz2
+tar -jxf /tmp/stblinux-3.14-1.1.tar.bz2
+cd uclinux-rootfs
+export PATH=/opt/toolchains/stbgcc-4.8-1.0/bin:$PATH
+make images-7445d0
+</pre>
+
+<h3><a name="h_RPM_building_crash_course">RPM-building crash course</a></h3>
+
+<p>The directories in the RPM build directory (system directory
+is <tt>/usr/src/redhat</tt>, we assume yours is <tt>$HOME/rpmbuilds</tt>) serve
+the following purposes:</p>
+
+<ul>
+
+  <li><tt>RPMS</tt> - Binary RPMs generated by the build, filed by machine 
+architecture.</li>
+
+  <li><tt>SRPMS</tt> - Source RPMs generated by the build.  These are
+architecture-independent files which contain the spec file, source tarballs,
+and source patches.</li>
+
+  <li><tt>SOURCES</tt> - Source tarballs and patches.  This directory is
+populated by "rpm -i" when installing the SRPM.</li>
+
+  <li><tt>SPECS</tt> - Spec files (essentially a build script for the RPM).</li>
+
+  <li><tt>BUILD</tt> - Used for temporary storage during the build process.</li>
+
+</ul>
+
+<p>As part of the cleanup stage, the toolchain RPM build process will
+delete the buildlog and the temporary installation directory.  As long
+as you're not running as root, it can't touch the actual install
+directory, but consider yourself warned that if you build as root and
+set the buildroot to something strange you could delete files from
+your actual install destination.
+The buildlog (in gzipped form) gets incorporated into the binary RPM.</p>
+
+<p>The following procedure can be used to convert the binary RPM into a
+<tt>tar.bz2</tt> file (run _this_ as root):</p>
+
+<pre>
+cd "$MY_RPM_BUILD_DIR/BUILD"
+rpm2cpio &lt; ../RPMS/i386/stbgcc-4.8-x.y.i386.rpm | cpio -id
+tar -C opt/toolchains -jcf stbgcc-4.8-x.y.tar.bz2 stbgcc-4.8-x.y
+rm -rf opt
+</pre>
+
+<p>Broadcom maintains a changelog at the end of the RPM spec file, to keep
+track of updates to each toolchain release.  This gets built into each RPM
+output file.  To view the changelog, use RPM:</p>
+
+<pre>
+rpm -qp --changelog stbgcc-4.8-x.y.i386.rpm | less
+</pre>
+
+<h3><a name="h_Installation">Installation</a></h3>
+
+<p>STB Linux toolchains are generally untarred into <tt>/opt/toolchains:</tt></p>
+
+<pre>
+cd /opt/toolchains
+tar -jxf /tmp/stbgcc-4.8-x.y.tar.bz2
+</pre>
+
+<p>Broadcom toolchains are built in such a way that they can be installed in
+arbitrary directories (including user home directories), so root access is not
+required. However, the final path should not have any spaces in it.</p>
+
+<p>On 64-bit hosts you may need to install the IA32 compatibility libraries if
+you download the binary release.
+They are typically already present on 64-bit RHEL/CentOS installations, but
+optional on some other distributions.  To install the IA32 libraries and
+other build dependencies on Ubuntu:</p>
+
+<pre>
+sudo apt-get install ia32-libs build-essential
+</pre>
+
+<p>If the IA32 libraries are missing, toolchain components may return a cryptic
+error:</p>
+
+<pre>
+bash: /opt/toolchains/stbgcc-4.8-1.0/bin/arm-linux-gnueabihf-gcc: No such file or directory
+</pre>
+
+<h2><a name="h_Floating_point_support">Floating point support</a></h2>
+<p>Hard float toolchains generate floating point instructions on MIPS and ARM:</p>
+
+<pre>
+  400534:       f7cc0008        sdc1    $f12,8(s8)
+  400538:       d7c20008        ldc1    $f2,8(s8)
+  40053c:       3c020040        lui     v0,0x40
+  400540:       d4400630        ldc1    $f0,1584(v0)
+  400544:       46201000        add.d   $f0,$f2,$f0
+  400548:       4620000d        trunc.w.d       $f0,$f0
+  40054c:       44020000        mfc1    v0,$f0
+</pre>
+
+<pre>
+    8438:       ed1b6b03        vldr    d6, [fp, #-12]
+    843c:       ed1b7b05        vldr    d7, [fp, #-20]  ; 0xffffffec
+    8440:       ee367b07        vadd.f64        d7, d6, d7
+    8444:       e30804d4        movw    r0, #34004      ; 0x84d4
+    8448:       e3400000        movt    r0, #0
+    844c:       ec532b17        vmov    r2, r3, d7
+</pre>
+
+<p>CPUs which cannot execute these instructions will trap into the
+kernel, and
+they will be emulated by the <tt>arch/mips/math-emu</tt> code.</p>
+<p>Soft float toolchains generate library calls into libgcc, not FPU
+instructions:</p>
+
+<pre>
+  400628:       8fc40020        lw      a0,32(s8)
+  40062c:       8fc50024        lw      a1,36(s8)
+  400630:       8c4611d0        lw      a2,4560(v0)
+  400634:       8c4711d4        lw      a3,4564(v0)
+  400638:       0c100140        jal     400500 &lt;__adddf3&gt;
+  40063c:       00000000        nop
+  400640:       8fdc0010        lw      gp,16(s8)
+  400644:       00402021        move    a0,v0
+  400648:       00602821        move    a1,v1
+  40064c:       0c1002f2        jal     400bc8 &lt;__fixdfsi&gt;
+  400650:       00000000        nop
+</pre>
+
+<pre>
+    84c4:       e59f5044        ldr     r5, [pc, #68]   ; 8510 &lt;main+0x78&gt;
+    84c8:       e24b1014        sub     r1, fp, #20
+    84cc:       e8910003        ldm     r1, {r0, r1}
+    84d0:       e24b301c        sub     r3, fp, #28
+    84d4:       e893000c        ldm     r3, {r2, r3}
+    84d8:       eb000011        bl      8524 &lt;__adddf3&gt;
+    84dc:       e1a03000        mov     r3, r0
+    84e0:       e1a04001        mov     r4, r1
+    84e4:       e1a00005        mov     r0, r5
+    84e8:       e1a02003        mov     r2, r3
+    84ec:       e1a03004        mov     r3, r4
+</pre>
+
+<p>Soft float provides a modest performance boost on non-FPU processors,
+but performs very poorly on chips with an FPU.  It is offered as an option
+for users who wish to build a custom toolchain, but the default toolchain
+on all platforms uses hard float.</p>
+
+<p>To enable soft float in your toolchain build, specify <tt>--with sf</tt>:</p>
+
+<pre>rpmbuild -ba stbgcc-4.8.spec --with sf 2&gt;&amp;1 | tee buildlog</pre>
+
+<p>The entire rootfs (all libraries, utilities, and applications) must be
+built for either hard float or soft float.  An application built for soft
+float will not run correctly if the system libraries were built for hard
+float. This is because the ABI and calling conventions are affected by the
+use or disuse of the floating point registers (on MIPS, $f0-$f31).</p>
+
+
+<h2><a name="h_uClibc_support">uClibc support</a></h2>
+
+<p>Prior to stbgcc-4.8, the standard Broadcom toolchains (prior to stbgcc-4.8)
+only supported uClibc (NPTL branch).  A few customer projects may still require
+this version of uClibc or the old linuxthreads-based uClibc.  Alternatively,
+some may require a different version of glibc than the one provided with
+stbgcc-4.8.
+In order to help satisfy these requirements,
+Broadcom provides a separate <a href="buildroot.html">application
+note</a> with step-by-step
+instructions on how to put together a custom toolchain and rootfs for
+the STB platform, using crosstools-ng and buildroot.</p>
+
+</body>
+</html>

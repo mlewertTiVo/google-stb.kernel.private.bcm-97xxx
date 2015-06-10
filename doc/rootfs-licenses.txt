@@ -1,0 +1,124 @@
+GPLv3 components - may NOT be used on a production STB:
+
+Utility				Base Version				License
+================================================================================
+
+gdbserver			gdb-7.3.1				GPL 3.0
+
+binutils			binutils-2.21				GPL 3.0
+
+
+Everything else:
+
+Utility				Base Version				License
+================================================================================
+
+arp				net-tools-1.52				GPL 2.0
+
+bash				GNU Bash-3.2 				GPL 2.0
+
+busybox				busybox-1.18.5				GPL 2.0
+
+cramfsck			cramfs					GPL 2.0
+
+dhcpcd				dhcpcd-1.3				GPL 2.0
+
+dropbear			dropbear-0.53.1				Other
+
+e2fsprogs			e2fsprogs-1.41.14			GPL 2.0
+
+ethtool				ethtool-2.6.37				GPL 2.0
+
+fdisk				fdisk-2.10m				GPL 2.0
+
+getty				TinyLogin-0.80				GPL 2.0
+
+hostname			sysutils				GPL 2.0
+
+ifconfig			net-tools-1.52				GPL 2.0
+
+inetutils			inetutils-1.4.2				GPL 2.0
+
+iperf   			iperf-2.0.5				NCSA
+
+iptables			iptables-1.4.3				GPL 2.0
+
+kill				sysutils				GPL 2.0
+
+lxc				lxc-0.7.3				LGPL 2.1
+
+mawk				mawk-1.3.4-20100625			GPL 2.0
+
+mkcramfs			cramfs					GPL 2.0
+
+mtd-utils			mtd-utils-20110106			GPL 2.0
+
+ntfs-3g				ntfs-3g 2009.4.4			GPL 2.0
+
+openssl				openssl 0.9.8k				BSD-old
+
+passwd				TinyLogin-0.80				GPL 2.0
+
+portmap				portmap					BSD-old
+
+ps				sysutils				GPL 2.0
+
+route				net-tools-1.52				GPL 2.0
+
+sfdisk				sfdisk-3.07				GPL 2.0
+
+shutdown			sysutils				GPL 2.0
+
+tinylogin			TinyLogin-0.80				GPL 2.0
+
+traceroute			traceroute-1.4a12			BSD-old
+
+hdparm				hdparm-6.9				BSD-new
+
+hotplug				hotplug-1.8				GPL 2.0
+
+utelnetd			utelnetd-0.1.3				GPL 2.0
+
+strace				strace-4.5.20				BSD-new
+
+procps				procps-3.2.8				GPL 2.0
+
+tcpdump				tcpdump-4.0.0				BSD-new
+
+uClibc				uClibc-0.9.32				LGPL 2.1
+
+libcap				libcap-2.20				BSD-new
+
+libfreetype.so.6.3.1		freetype-2.1.2				GPL 2.0
+
+libtermcap.so			GNU bash-3.2				GPL 2.0
+
+libtermcap.so.2.0.8		GNU termcap 1.3				GPL 2.0
+
+libusb.so			libusb-0.1.12				LGPL 2.1
+
+libpcap				libpcap-1.0.0				BSD-new
+
+libpopt				popt-1.16				X11
+
+zlib				zlib-1.2.3				zlib license
+
+pmtest / brcm-pm		Same as Ref Kernel (e.g., 2.6.31-1.0)	BSD-new
+
+Broadcom MoCA Driver		Same as Ref Kernel (e.g., 2.6.31-1.0)	Proprietary
+
+
+Notes:
+
+The zlib license is GPL-compatible.
+
+The NCSA license is comparable to the BSD-new license (permissive and
+non-copyleft).
+
+BSD-old includes the advertising clause.
+
+"Proprietary" licensed rootfs components are freely redistributable in
+binary form, but no source code is provided.
+
+dropbear sshd is distributed under various permissive open source licenses,
+listed in user/dropbear/LICENSE .

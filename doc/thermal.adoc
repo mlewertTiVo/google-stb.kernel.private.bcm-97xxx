@@ -1,0 +1,480 @@
+Linux Thermal Management HOWTO
+==============================
+
+Linux supports a generic thermal subsystem which consists of:
+
+ * thermal zones
+ * temperature sensors
+ * trip points
+ * cooling devices
+ * governors
+
+Thermal zones provide logical grouping of sensors and cooling devices that are
+physically colocated, along with information about important temperature
+thresholds (called *trip points*). A governor determines the actions that
+should be taken under changing temperature conditions. A governor might take
+input from the temperature sensor and combine it with trip point parameters,
+then determine when and to what extent to activate its available cooling
+devices.
+
+Much of Linux's thermal subsystem is also documented
+https://www.kernel.org/doc/Documentation/thermal/sysfs-api.txt[here] and
+https://www.kernel.org/doc/Documentation/thermal/[here].
+
+For thermal support, be sure you are using a minimum of BOLT v1.03 and STB
+Linux 3.14-1.6. Additional features may be enabled in subsequent releases --
+refer to the relevant release notes.
+
+Thermal Zones
+-------------
+
+STB Linux supports thermal zones as defined by the standard device tree thermal
+bindings
+footnoteref:[thermal-dt, https://www.kernel.org/doc/Documentation/devicetree/bindings/thermal/thermal.txt].
+STB systems will typically have a single thermal zone, associated with the AVS
+TMON sensor.
+
+Thermal Sensors
+---------------
+
+For every 28nm STB chip since BCM7445D0, we support a thermal sensor driver for
+the AVS TMON temperature monitoring hardware. The AVS TMON core provides
+temperature readings, a pair of configurable high- and low-temperature
+threshold interrupts, and an emergency over-temperature chip reset. Our Linux
+driver utilizes the first two to provide temperature readings and
+high-temperature notifications to applications. The over-temperature reset is
+not exposed to applications; this reset threshold is critical to the system and
+should be set with care within the bootloader. If the chip is allowed to
+continue operating after surpassing Broadcom-recommended temperature levels,
+catastrophic failure may ensue.
+
+Applications may choose to utilize the notification mechanism, the temperature
+reading mechanism (e.g., through polling), or both.
+
+
+Trip Points
+-----------
+
+Through creative use of the AVS TMON high/low interrupts, Linux is able to
+support an arbitrary number of hardware-backed trip point notifications. These
+trip points consist of a temperature and an optional hysteresis threshold. The
+trip point parameters are encoded in the device tree and can be configured from
+BOLT.
+
+Trip point notifications are triggered when first crossing a temperature
+threshold, and then again when the temperature reduces below the hysteresis
+threshold. Notifications are (by default) rate-limited to at most once every 10
+seconds.
+
+See <<API,the API section>> for info on how these notifications are communicated.
+
+
+Cooling Devices
+---------------
+
+CPU idle state injection: Intel PowerClamp
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To cool a system, one might use active cooling like fans, or they might
+throttle performance on a running CPU or GPU (e.g., dial back the CPU
+frequency, or force a CPU into low-power idle states). For our applications, we
+support a cooling device based on the Intel PowerClamp driver.
+footnote:[https://www.kernel.org/doc/Documentation/thermal/intel_powerclamp.txt]
+The +intel_powerclamp+ driver allows a user to enforce a particular percentage
+of time that a CPU must be idle. For instance, setting the +intel_powerclamp+
+cooling device to a setting of +40+ will mean that the system will be at least
+40% idle. This throttling mechanism is also known as idle injection.
+
+[IMPORTANT]
+Please note that there are some major caveats to this feature. It is
+still in a very preliminary stage of development and is subject to change in
+the upstream kernel. For instance, it caused lockups in 3.18 development kernels
+footnote:[https://lkml.org/lkml/2014/12/11/365]
+and prompted some changes to the driver
+footnote:[https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=a5fd9733a30d18d7ac23f17080e7e07bb3205b69].
+However, with this patch added, +intel_powerclamp+ does not seem to perform as
+consistently. This still requires more investigation.
+
+NOTE: Note that +intel_powerclamp+ is currently limited to a maximum of 50%
+forced idle time. It's possible we can increase this in the future if needed.
+
+DVFS-based CPU cooling
+~~~~~~~~~~~~~~~~~~~~~~
+
+In addition to CPU idle state injection, CPU power can be decreased by lowering
+the clock rate, using Dynamic Frequency Scaling (DFS) or Dynamic Voltage and
+Frequency Scaling (DVFS).
+These mechanisms are
+supported through the 'cpufreq' subsystem. Because our STB DFS features are not
+currently very flexible, we prefer idle injection over frequency-based cooling.
+
+See the thermal device tree documentation footnoteref:[thermal-dt] for info on
+how to enable 'cpufreq'-based cooling.
+
+Other
+~~~~~
+
+In addition to cooling via CPU throttling, STB systems can throttle performance
+on other hardware blocks in order to reduce heat generation. Refer to the
+reference software documentation for how to throttle other hardware blocks.
+
+[[governors]]
+Thermal Governors
+-----------------
+
+While there are a few in-kernel governors, we expect that a more flexible
+user-space governor will provide the best balance of features and flexibility.
+We currently provide support for a simple diagnostic and control utility that
+is provided in Linux +tools/+ directory called +tmon+.
+
+In-kernel governors
+~~~~~~~~~~~~~~~~~~~
+
+The Linux kernel ships with a set of default in-kernel governors (e.g., the
++step_wise+). These can use polled temperature readings or interrupt-based
+signaling to activate kernel-based cooling devices. However, using an in-kernel
+governor requires all cooling devices to be registered with the kernel. For
+various reasons, Broadcom has elected to handle all governing from user-space.
+
+
+User-space governors
+~~~~~~~~~~~~~~~~~~~~
+
+There are multiple user-space governors, and just about any application can
+hook into the thermal uevent <<API,API>> to receive trip point notifications.
+However, we recommend utilizing one of the pre-existing governors for handling
+thermal notifications.
+
+[NOTE]
+.Enabling user-space governance
+===============================
+To make use of user-space notification mechanisms, ensure that
++CONFIG_THERMAL_DEFAULT_GOV_USER_SPACE=y+ is in your kernel '.config'. You can
+also check the thermal policy at runtime:
+
+----
+# cat /sys/class/thermal/thermal_zone*/policy 
+user_space
+----
+===============================
+
+
+tmon
+^^^^
+
+The +tmon+ utility is provided as a sample tool within the upstream Linux
+kernel source tree. According to its README:
+[quote]
+TMON is conceived as a tool to help visualize, tune, and test the
+complex thermal subsystem.
+
+It provides a visualized user interface for monitoring and controlling thermal
+characteristics from the command line. See the <<tmon_walkthrough,walkthrough>>
+or
+http://stbgit.broadcom.com/gitweb/linux.git/blob/refs/heads/stb-3.14:/tools/thermal/tmon/README[README]
+for more.
+
+It implements a simple https://en.wikipedia.org/wiki/PID_controller[PID
+controller] algorithm for performing temperature control in order to prevent
+exceeding a maximum temperature value. It performs continuous temperature
+polling (with a configurable time interval) and can automatically adjust a
+cooling device based on past, current, and (predicted) future temperature
+trends.
+
+The +tmon+ utility can be used in conjunction with any other governor--either
+in-kernel or user-space.
+
+Nexus
+^^^^^
+
+Broadcom's STB reference software includes a daemon utility that listens for
+high-temperature notifications and uses that information to enable/disable
+throttling for some of its devices. Refer to the reference software
+documentation for mor info.
+
+thermal_daemon
+^^^^^^^^^^^^^^
+
+Intel has developed a tool called +thermal_daemon+
+footnote:[https://01.org/linux-thermal-daemon]
+footnote:[https://github.com/01org/thermal_daemon]
+as a reference implementation for managing system temperature.
+It offers a richer set of thermal management features which may prove useful.
+However, it was originally written for laptop systems and so was not written
+with embedded development concerns in mind. It currently does not support
+cross-compilation, and it requires system libraries which are not suitable for
+our STB environment (namely, dbus
+footnote:[http://www.freedesktop.org/wiki/Software/dbus/]).
+Broadcom may consider utilizing +thermal_daemon+ in the future, but it is
+currently unsupported.
+
+
+[[API]]
+API
+---
+
+The thermal subsystem provides both a sysfs API
+footnote:[https://www.kernel.org/doc/Documentation/thermal/sysfs-api.txt]
+and a signaling-based uevent interface. The former is simpler and can be
+utilized synchronously in polling loops, while the latter is useful for
+receiving asynchronous event notifications. Both can be used in conjunction.
+
+sysfs
+~~~~~
+
+Refer to the <<walkthrough,walkthrough>> or the
+https://www.kernel.org/doc/Documentation/thermal/sysfs-api.txt[kernel
+documentation].
+
+uevent
+~~~~~~
+
+Thermal notifications utilize the uevent format, broadcast via netlink.
+Notifications come in a text-based message format and will have a form like the
+following:
+
+----
+change@/devices/virtual/thermal/thermal_zone0
+ACTION=change
+DEVPATH=/devices/virtual/thermal/thermal_zone0
+SUBSYSTEM=thermal
+TRIPNUM=2
+TEMPERATURE=50634
+SEQNUM=1491
+----
+
+Refer to Nexus for a sample thermal application, which receives and parses
+thermal notifications.
+
+[[walkthrough]]
+Walkthrough
+-----------
+
+The sysfs API can be used directly, or you can manage thermal controls using a
+high-level tool (e.g., the +tmon+ utility). We will briefly walk through both methods.
+
+sysfs
+~~~~~
+
+Thermal zone (temperature)
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Check the thermal zone type:
+----
+# cat /sys/class/thermal/thermal_zone0/type
+avs_tmon
+----
+
+Check the current temperature (millidegrees celsius):
+----
+# cat /sys/class/thermal/thermal_zone0/temp
+46738
+----
+
+Cooling device
+^^^^^^^^^^^^^^
+
+Check the cooling device type:
+----
+# cat /sys/class/thermal/cooling_device0/type
+intel_powerclamp
+----
+
+Check the maximum state (i.e., maximum throttling allowed):
+----
+# cat /sys/class/thermal/cooling_device0/max_state
+50
+----
+
+Check the current state (clamping is disabled):
+----
+# cat /sys/class/thermal/cooling_device0/cur_state
+-1
+----
+
+Enable maximum clamping:
+----
+# echo 20 > /sys/class/thermal/cooling_device0/cur_state
+[248354.452000] intel_powerclamp: Start idle injection to reduce power
+----
+
+Check current state again; notice that the system is idle:
+----
+# cat /sys/class/thermal/cooling_device0/cur_state
+99
+----
+
+Start a few background processes, to occupy idle cycles:
+----
+# md5sum /dev/urandom &
+[1] 3688
+# md5sum /dev/zero &
+[2] 3689
+----
+
+Now, the clamping has kicked in. Notice the +kidle_inject+ thread(s) in +top(1)+:
+----
+top - 00:00:57 up 0 min,  0 users,  load average: 0.93, 0.22, 0.07
+Tasks:  44 total,   3 running,  41 sleeping,   0 stopped,   0 zombie
+Cpu(s): 14.9%us, 35.3%sy,  0.0%ni, 49.8%id,  0.1%wa,  0.0%hi,  0.0%si,  0.0%st
+Mem:   3111252k total,  2901968k used,   209284k free,        0k buffers
+Swap:        0k total,        0k used,        0k free,     7104k cached
+
+  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND            
+ 1327 root      20   0  1784  372  312 R 37.6  0.0   0:13.19 md5sum             
+ 1328 root      20   0  1784  372  312 R 37.6  0.0   0:09.59 md5sum             
+ 1326 root     -51   0     0    0    0 S 23.7  0.0   0:05.81 kidle_inject/0     
+    1 root      20   0  1916  504  444 S  0.0  0.0   0:01.00 init               
+    2 root      20   0     0    0    0 S  0.0  0.0   0:00.00 kthreadd           
+    3 root      20   0     0    0    0 S  0.0  0.0   0:00.00 ksoftirqd/0        
+    4 root      20   0     0    0    0 S  0.0  0.0   0:00.00 kworker/0:0        
+    5 root       0 -20     0    0    0 S  0.0  0.0   0:00.00 kworker/0:0H       
+    6 root      20   0     0    0    0 S  0.0  0.0   0:00.04 kworker/u8:0       
+    7 root      20   0     0    0    0 S  0.0  0.0   0:01.09 rcu_sched          
+    8 root      20   0     0    0    0 S  0.0  0.0   0:00.00 rcu_bh             
+    9 root      RT   0     0    0    0 S  0.0  0.0   0:00.00 migration/0        
+   10 root      RT   0     0    0    0 S  0.0  0.0   0:00.00 watchdog/0         
+   11 root       0 -20     0    0    0 S  0.0  0.0   0:00.00 khelper            
+   12 root      20   0     0    0    0 S  0.0  0.0   0:00.00 kdevtmpfs          
+   13 root      20   0     0    0    0 S  0.0  0.0   0:00.04 kworker/u8:1       
+  288 root       0 -20     0    0    0 S  0.0  0.0   0:00.00 writeback          
+----
+
+and the new state for the +intel_powerclamp+ cooling device:
+----
+# cat /sys/class/thermal/cooling_device0/cur_state
+22
+----
+
+NOTE: The idle state accounting is computed system-wide, so on SMP systems
+where one CPU is loaded but the others are idle, the idle time is computed as
+75%. Thus, the +intel_powerclamp+ driver will not kick in.
+
+
+[[tmon_walkthrough]]
+tmon
+~~~~
+
+Check out the help text:
+----
+# tmon -h
+Usage: tmon [OPTION...]
+  -c, --control         cooling device in control
+  -d, --daemon          run as daemon, no TUI
+  -g, --debug           debug message in syslog
+  -h, --help            show this help message
+  -l, --log             log data to /var/tmp/tmon.log
+  -t, --time-interval   sampling time interval, > 1 sec.
+  -T, --target-temp     initial target temperature
+  -v, --version         show version
+  -z, --zone            target thermal zone id
+----
+
+We can use two main modes, the daemon mode or the interactive mode (a.k.a. TUI
+mode).
+
+Interactive mode (TUI)
+^^^^^^^^^^^^^^^^^^^^^^
+
+To start, simply run +tmon+ from a Linux shell. This puts
++tmon+ in monitor-only mode (see +Control Device: None+):
+----
+     TMON v1.0
+
+┌────────────────THERMAL ZONES(SENSORS)────────────────────────────────────────┐
+│Thermal Zones:                 cpu-therm00                                    │
+│Trip Points:                   PPP                                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────── COOLING DEVICES ────────────────────────────────────────┐
+│ID  Cooling Dev   Cur    Max   Thermal Zone Binding                           │
+│00 intel_powerc    -1     50   ││││││││││││                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         10        20        30        40        50        60 │
+│cpu-th 0:[ 40][>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────── CONTROLS ────────────────────────────────────────┐
+│PID gain: kp=0.36 ki=5.00 kd=0.19 Output 0.00                                 │
+│Target Temp: 65.0C, Zone: 0, Control Device: None                             │
+└──────────────────────────────────────────────────────────────────────────────┘
+----
+
+For normal use, you might want to set a cooling device and a target temperature, e.g.:
+----
+# tmon --control intel_powerclamp --target-temp 100
+     TMON v1.0
+
+┌────────────────THERMAL ZONES(SENSORS)────────────────────────────────────────┐
+│Thermal Zones:                 cpu-therm00                                    │
+│Trip Points:                   PPP                                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────── COOLING DEVICES ────────────────────────────────────────┐
+│ID  Cooling Dev   Cur    Max   Thermal Zone Binding                           │
+│00 intel_powerc    -1     50   ││││││││││││                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         10        20        30        40        50        60 │
+│cpu-th 0:[ 40][>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────── CONTROLS ────────────────────────────────────────┐
+│PID gain: kp=0.36 ki=5.00 kd=0.19 Output 0.00                                 │
+│Target Temp: 100.0C, Zone: 0, Control Device: intel_powerc                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+----
+
+Pressing +<TAB>+ will open a window which allows you to either configure the
+cooling device directly (type +A+, then a minimum idle percentage, and press
++<ENTER>+) or to change the target temperature. For instance, the key sequence
++<TAB>B97<ENTER>+ will open the tuning window, set a target of 97 degrees
+celsius, and close the tuning window.
+
+
+Daemon mode
+^^^^^^^^^^^
+
+The +tmon+ utility can be launched as a background daemon. This might be
+suitable for including in a boot-time init script like +/etc/inittab+, for
+instance.
+
+Just log temperatures to +/var/tmp/tmon.log+:
+----
+# tmon --log --daemon
+----
+
+Control with +intel_powerclamp+, set target temperature of 88 degrees, and log
+to +/var/tmp/tmon.log+:
+----
+# tmon --control intel_powerclamp --target-temp 88 --log --daemon
+Logging data to /var/tmp/tmon.log
+... wait a few seconds ...
+# cat /var/tmp/tmon.log
+#----------- THERMAL SYSTEM CONFIG -------------
+#thermal zone cpu-thermal00 cdevs binding: 00000000000000000000000000000000
+#	TP00 type:passive, temp:95000
+#	TP01 type:passive, temp:110000
+#	TP02 type:passive, temp:125000
+#cooling devices00: intel_powerclamp
+#---------- THERMAL DATA LOG STARTED -----------
+Samples TargetTemp cpu-thermal0    intel_powerclamp0 
+1 88.0 40 0 
+2 88.0 40 0 
+3 88.0 39 0 
+4 88.0 40 0 
+5 88.0 39 0 
+6 88.0 40 0 
+7 88.0 40 0 
+8 88.0 40 0 
+9 88.0 40 0 
+10 88.0 39 0 
+11 88.0 40 0 
+12 88.0 39 0 
+13 88.0 40 0 
+14 88.0 40 0 
+15 88.0 40 0 
+16 88.0 40 0 
+----
+
+You can continuously monitor logs with:
+----
+# tail -f /var/tmp/tmon.log
+----

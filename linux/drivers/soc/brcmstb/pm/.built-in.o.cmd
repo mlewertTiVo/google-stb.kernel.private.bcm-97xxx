@@ -1,0 +1,1 @@
+cmd_drivers/soc/brcmstb/pm/built-in.o :=  arm-linux-gnueabihf-ld -EL    -r -o drivers/soc/brcmstb/pm/built-in.o drivers/soc/brcmstb/pm/pm.o drivers/soc/brcmstb/pm/s2.o drivers/soc/brcmstb/pm/regsave.o drivers/soc/brcmstb/pm/xpt_dma.o 
