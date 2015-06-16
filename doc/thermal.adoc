@@ -1,5 +1,8 @@
 Linux Thermal Management HOWTO
 ==============================
+Broadcom Corporation <support@broadcom.com>
+v1.0, 2015-05-15: Initial version
+:toc:
 
 Linux supports a generic thermal subsystem which consists of:
 

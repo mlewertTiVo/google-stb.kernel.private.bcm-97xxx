@@ -8,10 +8,11 @@ v1.0, 2015-04-20: Converted to asciidoc
 
 Please see:
 
-http://lwn.net/Articles/2.6-kernel-api/
-http://lwn.net/Articles/183225/
+- http://lwn.net/Articles/2.6-kernel-api/
+- http://lwn.net/Articles/183225/
 
-For information on kernels beyond 2.6.31, refer to kernelnewbies.org.
+For information on kernels beyond 2.6.31, refer to
+http://kernelnewbies.org/LinuxChanges.
 
 == How do I add my application to the rootfs?
 

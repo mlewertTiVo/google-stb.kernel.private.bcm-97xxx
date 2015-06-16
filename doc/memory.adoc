@@ -1,62 +1,87 @@
 = Memory/VM on stblinux
 Broadcom Corporation <support@broadcom.com>
-v1.0, 2015-04-20: Converted to asciidoc.
+v1.1, 2015-06-09: Updated for STB Linux 3.14-1.7 release
 :toc:
 
-== Reserved A/V memory (BMEM)
+== Reserved A/V memory (BMEM and/or CMA)
 
-The A/V peripherals (managed by the PI/Nexus middleware) require a
-large, contiguous memory region.  This region is set aside by the
-Linux kernel at boot time, and managed entirely by PI/Nexus.  Linux
-provides the following capabilities with respect to BMEM regions:
+NOTE: This section was updated for STB Linux 3.14-1.7+ for
+Brahma-B15-based SoCs, and some of the usage has changed compared to
+BMEM on BMIPS.  Please be sure to refer to the documentation for the
+STB Linux version you are using for the most accurate information.
 
- * Allow the user to define the size and location of BMEM regions,
-subject to certain restrictions
+The A/V peripherals (managed by the PI/Nexus middleware) require
+large, contiguous memory regions.  There are two different reservation
+schemes:
 
- * Allow `O_DIRECT` I/O from SATA and USB storage devices, to and
-from the BMEM region, to facilitate zero-copy data transfers (typically
-video streaming / PVR).
+. dedicated reserved memory ("BMEM"), enabled by option
+  CONFIG_BRCMSTB_BMEM.
+. reserved memory using Contiguous Memory Allocator (CMA), enabled by
+  option CONFIG_BRCMSTB_CMA.
+  footnote:[Strictly speaking, the Broadcom STB CMA device is a user
+  of CMA, and we create a dedicated device for refsw.  Other drivers
+  also use CMA, so it would be more correct to say "the Broadcom STB
+  CMA device".  For the sake of brevity, we will use "CMA" to refer to
+  the Broadcom STB CMA device in this document.]
+
+BMEM and CMA regions are set aside by the Linux kernel at boot time,
+and intended to be managed entirely by PI/Nexus.  Linux provides the
+following capabilities with respect to these reserved regions:
+
+ * Allow the user to define the size and location of BMEM and CMA
+   regions, subject to certain restrictions
+
+ * Allow `O_DIRECT` I/O from SATA and USB storage devices, to and from
+   the BMEM region, to facilitate zero-copy data transfers (typically
+   video streaming / PVR).
 
  * Allow `mmap()` to these regions from user programs, and
-cached/uncached `ioremap()` to these regions from kernel drivers.
+   cached/uncached `ioremap()` to these regions from kernel drivers.
 
-Any portion of `ZONE_NORMAL` memory (non-HIGHMEM) on MEMC0 can be
-set aside as BMEM.
+By default, all of HIGHMEM within the 32-bit address space on MEMC0,
+MEMC1, and MEMC2 are set aside as CMA.  Consult the hardware
+documentation to get a comprehensive view of the system memory for
+your chip and what memory will be in this default reservation.  This
+default can be overridden with different regions or disabled by
+providing options on the kernel boot command line.  See the following
+table of examples to see how to set the desired memory reservations.
 
+NOTE: Providing `bmem` or `brcm_cma` boot parameters will disable the
+default reservation.
 
-MEMC1, by default, is all reserved memory (no Linux memory).  On some
-chips it is possible to partition MEMC1 between Linux memory and BMEM.
-This is accomplished with the `memc1=` parameter.  The `bmem=`
-parameter should never be used on a HIGHMEM region, either on MEMC0
-(which may be partially HIGHMEM) or MEMC1 (which is always HIGHMEM).
-
-Some examples of how to configure BMEM through the kernel command
-line:
-
-[cols="1l,3"]
+.BMEM and CMA kernel boot command line examples
+[cols="1m,3"]
 |==================================================================
 
-| bmem=64M@192M |
-Create a single BMEM region (bmem.0) at PA 0x0c00_0000, length
+| bmem=64M@512M |
+Create a single BMEM region (bmem.0) at PA 0x2000_0000, length
 0x0400_0000 (64MB).
 
-| bmem=64M@192M bmem=128M@512M |
+| bmem=64M@512M bmem=128M@768M  |
 Same as above, plus create a second BMEM region (bmem.1) at PA
-0x2000_0000, length 0x0800_0000 (128MB).
+0x3000_0000, length 0x0800_0000 (128MB).
 
-| bmem=64M@0x0c000000 bmem=128M@0x20000000 |
+| bmem=64M@0x20000000 bmem=128M@0x30000000 |
 Same as above.  Sometimes it is easier to specify the physical
 address directly.
 
-| [no options] |
-The default behavior is to create a single BMEM region ranging from
-64MB (0x0400_0000) up to the end of lower memory: 0x0fff_ffff or
-lower, depending on the system memory size.
+| bmem=64M@512M brcm_cma=128M@768M |
+Same as above, except that instead of the second reserved region
+being BMEM, it will be CMA.
 
-| memc1=64M |
-Use 64MB of MEMC1 as Linux memory, then if anything is left over,
-create another BMEM region.  This will always be the last BMEM region
-created.
+| [no options] |
+The default behavior is to create a CMA region ranging from 256MB
+(0x1000_0000) up to the end of the first memory controller in the
+32-bit address space, then create CMA regions for all of the memory
+on the other memory controllers.  For boards with memory above the
+32-bit address range, the default is to have the first 64MB reserved
+in those regions and to leave the rest for Linux.
+
+| bmem=0 |
+Disable BMEM.
+
+| brcm_cma=0 |
+Disable Broadcom CMA device.
 
 |==================================================================
 
@@ -65,120 +90,66 @@ The application should read
 regions have been created by the kernel.  Each `bmem.N` file
 contains the start address and length, in hex, separated by a space.
 
-BMEM regions are all created at boot time and cannot be altered later.
+To determine which CMA regions have been created by the kernel, the
+application should use the ioctls listed in
+`linux/include/uapi/linux/brcmstb/cma_driver.h`.  See
+`rootfs/user/cmatool/cmatool.c` for an example.  Alternatively,
+instead of using the ioctls directly, use the output of
+`cmatool listall` to retrieve the information.
+
+BMEM and CMA regions are all created at boot time and cannot be
+altered later.
 
 Futexes, mutexes, etc. *may not* be created in BMEM regions.  Linux
 does not track this memory the same way as normal pages, and the results
 will be undefined.
 
-Applications must handle all cache coherency in BMEM regions.  This can
-be done with the `cacheflush()` syscall.
+Applications must handle all cache coherency in the reserved regions.
+On Brahma-B15 SoCs, this *cannot* be done with the `cacheflush()`
+library function because that is MIPS-specific.  Note that the
+cacheflush syscall on ARM also differs in semantics and will *not* do
+the same thing as on MIPS.  One method of ensuring cache coherency on
+a region would be to use the DMA API (see
+linux/Documentation/DMA-API.txt) to map and unmap the region.
+
+IMPORTANT: There is a good chunk of information on the web discussing
+how to use the `__clear_cache()` function (gcc-specific?) to do a
+cache flush on buffers mmap'd with `PROT_EXEC`.  However, most of
+these are discussing how what is necessary for JIT to work.  On ARM,
+the `__clear_cache()` function calls the private ARM `cacheflush()`
+syscall (not the same as the MIPS `cacheflush()` syscall), which
+cleans the data cache to the point of unification (PoU) and
+invalidates the instruction cache.  This is sufficient for JIT.
+However, for the likely STB use case of interacting with devices that
+have their own view of memory, this is not enough: the data cache must
+be cleaned to the point of coherence (PoC).
 
 == Kernel memory maps and large memory
 
-For systems with 256MB of RAM (or less), all physical memory starts at
-physical address 0 and is contiguous.  This is true for all BMIPS3300
-based chips.
+Broadcom Brahma-B15 chips (28nm) can generally address large amounts
+of DRAM.  The memory maps differ across chip families, but generally
+they have EBI/Flash from PA 0xE000_0000 - 0xEFFF_FFFF and registers
+from PA 0xF000_0000 - 0xF1FF_FFFF.
 
-BMIPS438x/BMIPS5000 based chips can generally address more than 256MB of
-DRAM.  In this case, the memory above 256MB (known as "upper memory")
-starts at PA 0x2000_0000 instead of PA 0x1000_0000.  This is because the
-EBI and peripheral register region consumes 256MB at PA 0x1000_0000.
-Therefore, in order to support more than 256MB, it is necessary to enable
-`CONFIG_BRCM_UPPER_MEMORY` .
-
-This section will provide an overview of large memory handling under STB
-Linux.  Please refer to
-`arch/mips/include/asm/mach-brcmstb/spaces.h` for details on the
-exact locations.  `spaces.h` shows both physical and virtual address
-maps for all supported configurations.
-
-The 65nm MIPS cores use the following address map to handle 512MB of
-`ZONE_NORMAL` memory:
-
-
-----
-/*
- * 512MB Broadcom 256+256 virtual address map
- *
- * 8000_0000 - 8fff_ffff: lower 256MB, cached mapping
- * 9000_0000 - 9fff_ffff: EBI/registers, cached mapping (unused)
- * a000_0000 - afff_ffff: lower 256MB, uncached mapping
- * b000_0000 - bfff_ffff: EBI/registers, uncached mapping
- * c000_0000 - cfff_ffff: upper 256MB, cached mapping
- * d000_0000 - dfff_ffff: upper 256MB, uncached mapping
- * e000_0000 - fffd_7fff: vmalloc region
- * fffd_8000 - fffd_ffff: FIXMAP
- *
- * PA 3000_0000 and above are accessed through HIGHMEM (BMIPS5000 only).
- */
-----
-
-The 512MB map uses wired TLB entries with 256MB pagemasks to create
-persistent mappings for both cached and uncached views of the upper
-256MB.  The standard kernel macros are modified slightly to skip the
-hole at PA 0x1000_0000.  From the kernel's perspective, upper memory
-is largely equivalent to lower memory.  (Contrast with HIGHMEM, in
-which high memory can never be used for `kmalloc()`, `skbuff`
-structures, etc.)
-
-The 40nm MIPS cores have a new "XKS01" feature which allows the kernel
-to access a full 1GB of memory without HIGHMEM:
-
-----
-/*
- * 1024MB Broadcom 256+768 virtual address map
- *
- * 8000_0000 - 8fff_ffff: 256MB RAM @ 0000_0000, cached
- * 9000_0000 - 9fff_ffff: 256MB EBI/Registers @ 1000_0000, uncached
- * a000_0000 - cfff_ffff: 768MB RAM @ 2000_0000, cached
- * d000_0000 - dfff_ffff: TBD
- * e000_0000 - ff1f_7fff: vmalloc region
- * ff1f_8000 - ff1f_ffff: FIXMAP
- * ff40_0000 - ff7f_ffff: CONSISTENT region
- *
- * PA 5000_0000 and above are accessed through HIGHMEM (BMIPS5000 only).
- */
-----
-
-XKS01 dramatically changes the way that kseg0 and kseg1 work.  For more
-details, please refer to the MIPS hardware module datasheet and
-`spaces.h` .
-
-Drivers should follow a few simple portability rules in order to work
-correctly on an XKS01 system:
-
- 1. Do not assume that uncached access to physical memory is available
-via kseg1.  Instead, use `ioremap_nocache()` and let the kernel figure
-out how to provide the mapping.
-
- 2. Do not assume that the system register space is at VA 0xb000_0000.
-
- 3. Do not hard-code any kernel virtual addresses into the driver.
-
-HIGHMEM is another method that Linux can use to access larger amounts
+HIGHMEM is the method that Linux uses to access larger amounts
 of physical memory.  HIGHMEM works by creating temporary kernel
-mappings to read or write upper memory.  Unfortunately, it is not
-feasible to use HIGHMEM on any MIPS processor that has cache aliases,
-because of the large number of cache flushes that would be required to
-maintain coherency.  For more information,
-http://www.linux-mips.org/wiki/Highmem"[see the linux-mips.org wiki
-entry on HIGHMEM].
+mappings to read or write upper memory.
 
-HIGHMEM is supported on BMIPS5000 since this CPU does not have cache
-aliases.  On 65nm BMIPS5000 chips, HIGHMEM is used for all memory
-above 512MB.  On 40nm BMIPS5000 chips, HIGHMEM is used for all memory
-above 1GB (MEMC0) and any Linux memory in MEMC1.
-
-All HIGHMEM and upper memory configurations have SPARSEMEM enabled by
-default.  SPARSEMEM saves 2MB-10MB of system memory by avoiding the
+All HIGHMEM configurations have SPARSEMEM enabled by default.
+SPARSEMEM saves several megabytes of system memory by avoiding the
 creation of page descriptor (`struct page`) arrays for address space
-that falls into one of the memory holes.
+that falls into one of the memory holes.  The use of SPARSEMEM is
+especially important to conserve memory for system configurations that
+use the Large Physical Address Extension (LPAE) to access addresses
+above the 32-bit range (up to 40-bits).
+
+Note that "high memory", not being direct-mapped, can never be used
+for `kmalloc()`, `skbuff` structures, etc.
 
 == Cache coherency
 
-On most MIPS implementations, cache coherency must be explicitly
-handled by software.  On stblinux, this generally means:
+On most MIPS and ARM implementations, cache coherency must be explicitly
+handled by software.  On STB Linux, this generally means:
 
  * After writing instruction code to memory, the data cache (D$) must
    be flushed to write back the new instructions, then the instruction
@@ -188,6 +159,7 @@ handled by software.  On stblinux, this generally means:
  * In cases where cache aliases may be created, they need to be
    flushed out by the OS.  This problem affects systems with virtually
    indexed caches in which the page size is smaller than the way size.
+   Broadcom Brahma-B15 CPUs have nonaliasing instruction and data caches.
 
  * Prior to a DMA operation, a D$ writeback/invalidate operation is
    performed on a range that covers the DMA buffer.  This ensures that
@@ -200,6 +172,16 @@ handled by software.  On stblinux, this generally means:
    maintain coherency during DMA operations.  On processors with
    integrated, exclusive L2 caches, such as BMIPS4380, this is not
    necessary.
+
+=== Brahma-B15 (28nm ARMv7) cache notes
+
+On Brahma-B15-based SoCs, the Read-Ahead Cache (RAC) is between the
+B15 complex's L2 cache and DDR memory.  The stblinux kernel has
+modifications to the cache maintenance functions so that they flush
+the RAC contents when necessary.  For details, see
+`linux/arch/arm/mm/cache-b15-rac.c` and `linux/arch/arm/mm/cache-v7.S`.
+
+=== BMIPS cache notes
 
 The cacheflush() system call implementation has been enhanced on
 stblinux in order to provide finer-grained flushing to user-mode
@@ -239,8 +221,8 @@ from a software perspective and can be allocated to Linux or PI as the
 user sees fit.  There are no restrictions on any region with regard to
 use by Linux.  Examples: 7405 in UMA mode; 7468/7550 (single MEMC).
 
-3. On some designs, MEMC1 is accessible to the CPU but it is only
-connected to the A/V clients.  It is *not* connected to Linux
+3. On some designs, MEMC1 and MEMC2 are accessible to the CPU but only
+connected to the A/V clients.  They are *not* connected to Linux
 peripherals like USB, GENET, SATA, MOCA, or EDU.  Example: 7420.
 +
 Due to this architectural limitation, it is not feasible to add this
@@ -249,22 +231,24 @@ know what to do if they were passed a pointer to DRAM that has no DMA
 access.  Many common operations (such as PVR) assume zero-copy
 transactions, and double-buffering is not an option.
 +
-However, it *is* possible to map regions from MEMC1 into the process
-address space using `mmap()`.  They can be read and written from the
-CPU using cached or uncached (O_SYNC) accesses, but DMA operations
-such as direct I/O are prohibited.
+However, it *is* possible to map regions from MEMC1 and MEMC2 into the
+process address space using `mmap()`.  They can be read and written
+from the CPU using cached or uncached (O_SYNC) accesses, but DMA
+operations such as direct I/O are prohibited.
 
-4. On other designs, MEMC1 is accessible to the CPU and to all of the
-Linux peripherals.  In cases like this, MEMC1 can be added to the
-Linux memory pool, and any BMEM regions of that memory can be accessed
-through `mmap()`.  Example: 7425.
-+
+4. On other designs, MEMC1 and MEMC2 are accessible to the CPU and to
+all of the Linux peripherals.  In cases like this, MEMC1 and MEMC2 can
+be added to the Linux memory pool, and any BMEM or CMA regions of that
+memory can be accessed through `mmap()`.  Example: 7425, Brahma-B15
+SoCs such as 7445.
+
 For case #3, `malloc()` and similar functions will only allocate RAM
 from the Linux memory pool on MEMC0.  However, the application can
-always map MEMC1 directly.  This program demonstrates how to write a
-simple allocator (`m1alloc()`) which uses MEMC1 instead of the Linux
-memory pool:
+always map MEMC1 and MEMC2 directly.  This program demonstrates how to
+write a simple allocator (`m1alloc()`) which uses MEMC1 instead of the
+Linux memory pool:
 
+.m1alloc_example.c
 ----
 #include <stdio.h>
 #include <unistd.h>
@@ -305,7 +289,7 @@ int main(int argc, char **argv)
 }
 ----
 
-The application must ensure that the MEMC1 regions it uses do not
+The application must ensure that the regions it uses do not
 conflict with any regions in use by PI/Nexus or other processes/threads.
 These regions may not be used for `O_DIRECT` I/O or any other
 operation involving DMA to/from the Linux peripherals.
@@ -314,7 +298,7 @@ operation involving DMA to/from the Linux peripherals.
 
 The Linux kernel provides three options regarding memory overcommit.
 These are covered in
-`stblinux-2.6.37/Documentation/vm/overcommit-accounting` :
+`linux/Documentation/vm/overcommit-accounting` :
 
 ----
 0	-	Heuristic overcommit handling. Obvious overcommits of
@@ -346,7 +330,7 @@ it is more deterministic and more closely resembles the behavior seen
 on other embedded systems (or under an RTOS).
 
 On Broadcom 2.6.18 kernels, policy #2 was the default unless swap was
-enabled.  On Broadcom 2.6.31 and 2.6.37 kernels, policy #0 is the
+enabled.  On Broadcom 2.6.31 and newer kernels, policy #0 is the
 default.
 
 When using policy #2, malloc() may return NULL even though there is
@@ -373,9 +357,9 @@ Sample commands for changing the overcommit policy and ratio:
 
 == Stacks
 
-The default size for process/thread stacks under MIPS Linux is 8MB.  In the
+The default size for process/thread stacks under stblinux is 8MB.  In the
 stblinux-2.6.18 kernel, this was reduced to 1MB.  On stblinux-2.6.31 and
-2.6.37, the default value is retained.  Therefore, if overcommit policy #2
+newer, the default value is retained.  Therefore, if overcommit policy #2
 is used, the default stack size should be reduced, as the entire 8MB would
 be taken out of the physical memory pool for every process and thread
 otherwise.
@@ -389,13 +373,15 @@ There are several ways to adjust the stack size:
    afterward.
  * If `ulimit -s` is set to allow an unlimited stack size,
    pthread_create() will default to 2MB (which is the
-   architecture-specific default hard-coded in uClibc).  Otherwise,
-   uClibc will use the `ulimit -s` setting for thread stacks.
+   architecture-specific default for MIPS hard-coded in uClibc and
+   (e)glibc--search for `ARCH_STACK_DEFAULT_SIZE`).
+   Otherwise, uClibc will use the `ulimit -s` setting for thread
+   stacks.
 
-In the reference kernels, 8kB is allocated for the kernel stack and for the
-thread/task info structures on each process.  It may be possible to
-increase the kernel stack by modifying
-`stblinux-2.6.37/arch/mips/include/asm/thread_info.h` , although this is
+In the reference kernels, 8kB is allocated for the kernel stack and
+for the thread/task info structures on each process.  It may be
+possible to increase the kernel stack by modifying
+`linux/arch/{arm,mips}/include/asm/thread_info.h` , although this is
 not officially supported.
 
 Sample code for adjusting the pthread stack size:

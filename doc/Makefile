@@ -15,4 +15,4 @@ clean distclean:
 	rm -f $(OBJS)
 
 %.html: %.adoc
-	$(DOC) -o $@ -a toc2 -a toclevels=4 --section-numbers $<
+	$(DOC) -a icons=font -o $@ $<

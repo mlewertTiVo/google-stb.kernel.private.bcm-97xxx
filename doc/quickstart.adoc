@@ -1,0 +1,1125 @@
+= Getting started with STB Linux
+Broadcom Corporation <support@broadcom.com>
+v1.0, 2015-06-10: Converted to asciidoc
+:toc2:
+:toclevels: 3
+:numbered:
+
+== Basic usage
+
+=== Overview
+
+This document provides basic guidance on setting up the Broadcom
+reference board, booting Linux, and building the kernel sources.  It
+assumes basic familiarity with using and administering Linux systems.
+
+STB Linux is the reference Linux distribution for Broadcom set-top box
+chipsets.  It is a development system, not a turnkey solution.  The three
+major components of STB Linux are the kernel, the toolchain, and the
+rootfs.
+
+STB Linux is designed to provide a reasonable starting point for
+building a STB product.  The kernel drivers are production-quality and the
+kernel BSP is well-integrated with the Broadcom STB middleware (Nexus).
+The rootfs provides many useful development and debug tools, and can be
+easily customized to meet the needs of the final product.  (Or, it can be
+easily replaced with an alternate rootfs.)
+
+Some conventions used in this document include:
+
+- `^C` means to hold down control and press the "C" key.
+
+- `HOST` refers to the hostname or IP address of your host PC.
+e.g. `192.168.1.1`
+
+- `USER` refers to your login name on the host PC.  e.g.
+`torvalds`
+
+- `rootfs` generically refers to a Linux root filesystem for the
+target.  This can take many different forms: initramfs, ext4 partition,
+UBIFS filesystem, etc.
+
+- `7445c0` is used as the target for most examples; however, any
+other supported target can be substituted instead.
+
+- The examples assume that files originating from Broadcom (such as
+source tarballs) were saved to the `~/Downloads` directory.  Any
+other directory can be substituted.
+
+- Likewise, the examples assume a work directory of `/work`, but
+any convenient directory can be used.
+
+=== Preparing the host system
+
+An x86-based Linux host PC is used to interact with the STB and to build
+software for the target.  The recommended configuration is:
+
+- Red Hat Enterprise Linux 5 (RHEL5) for x86_64 (64-bit)
+- 1GB of memory (or more)
+- 50GB of free disk space, on a local (not NFS) volume
+- Root access available for first-time setup
+
+Within Broadcom, several other configurations are also actively used to
+work on STB Linux:
+
+- RHEL4.4 for i386 (32-bit)
+- Oracle Enterprise Linux 5.3 (64-bit)
+- CentOS 5.5 (64-bit)
+- Ubuntu 10.04 LTS (64-bit)
+
+The latter systems are not guaranteed to work in all cases, but they
+generally receive some level of incidental test coverage through daily use.
+
+Windows hosts can sometimes be used for certain operations (such as
+serial access and serving images via TFTP), but the cross toolchain does
+not run on Windows.  This severely limits the usefulness of a Windows host
+PC.  VMWare can be used to run an emulated Linux host system under Linux,
+but build performance is not good and it may be tricky to set up the
+network correctly.
+
+The following steps will cover package installation on the Linux host
+PC.  All commands in this section should be run as root.
+
+On RPM-based systems, the following packages/groups should be installed:
+
+----
+# CentOS:
+yum groupinstall "Development Tools"
+yum install ncurses-devel glibc.i686 zlib.i686
+
+# RHEL:
+up2date -i "@ Development Tools"
+up2date -i ncurses-devel glibc.i686 zlib.i686
+----
+
+On Debian-based systems, the following packages/groups should be installed:
+
+----
+apt-get install ia32-libs build-essential libncurses5-dev zlib1g-dev
+----
+
+If your system is a newer 64-bit Debian/Ubuntu version that does not
+have the ia32-libs package, try replacing that with `lib32z1
+lib32ncurses5 lib32bz2-1.0 lib32stdc++6`.
+
+The Broadcom cross toolchain must be installed in order to compile and
+link executables for the target.  For the 2.6.37-2.0 release, this process
+would look like:
+
+----
+# extract the giant release tarball
+tar -jxf Release-2.6.37-2.0.tar.bz2
+
+# extract stbgcc tarball into /opt/toolchains
+mkdir -p /opt/toolchains
+tar -C /opt/toolchains -jxf 2637-2.0/bin/toolchains/stbgcc-4.5.3-1.0.tar.bz2
+----
+
+The version numbers should be corrected, to match the release you are
+using.  You may have received the toolchain tarball separately from the
+full release tarball.
+
+=== Setting up the serial port
+
+The STB serial port runs at 115200 bps, 8 data bits, 1 stop bit, no
+parity.  Neither hardware nor software handshaking should be enabled.
+
+On most boards, the console port is a 3-pin connector labeled "UARTA" or
+"UART0" or "CFE CONSOLE".  Broadcom supplies a cable which provides a
+female DB-9 jack suitable for direct connection to a PC via a
+straight-through cable.  No null modem adapter is necessary.
+
+USB-Serial dongles may be used, if the host PC lacks a serial port.  On
+Linux these generally show up as `/dev/ttyUSB0`,
+`/dev/ttyUSB1`, ...
+
+Any terminal emulator program can be used to communicate with the target
+board.  Popular choices include:
+
+- minicom (Linux)
+- putty (Linux/Windows)
+- Tera Term (Windows)
+- SecureCRT (Windows)
+
+Ideally the terminal program should support logging and ANSI/VT100
+emulation.
+
+When using minicom, it is helpful to disable the gnome-terminal hotkey
+for F1 (help) via `gconf-editor`, so that the F1 key can be used as
+a hotkey on the target.
+
+=== Setting up the network
+
+The STB target should be connected to a LAN segment that has a DHCP
+server present.  Access to the public internet is not required.
+
+The first ethernet interface on the target (normally connected to an
+internal 10/100 PHY) should be connected to the LAN.  If there is no
+ethernet interface on the target board, or if the ethernet interface is not
+accessible to the STB host CPU, it is permissible to use a USB-Ethernet
+dongle such as the Trendnet TU-ET100.
+
+A TFTP server is required in order to boot kernel and rootfs images from
+the network.  On Debian/Ubuntu this can be set up as follows:
+
+----
+apt-get install atftpd
+ln -s /srv/tftp /tftpboot
+chmod 01777 /tftpboot/
+----
+
+The TFTP server does not need to be on the same subnet as the target,
+but the protocol is sensitive to latency so it is typically not a good idea
+to locate the TFTP server on a different site or across the internet.
+
+On Windows hosts, the PumpKIN TFTP server is sometimes used as an
+alternative.
+
+=== Basic commands
+
+After connecting the host PC to the serial console, starting the
+terminal program, and powering up the target board, the BOLT bootloader is
+the first piece of software that runs:
+
+----
+using board #a
+SHMOO v0.3 (ffffffff) 0p3
+DDR0: !@ ffe09b94 <= ffe07fcc MEMSYS-0 @ 01100000 OK
+DDR1: =@ ffe09b94 <= ffe07fcc MEMSYS-1 @ 01180000 OK
+DDR2: =@ ffe09b94 <= ffe07fcc MEMSYS-2 @ 01200000 OK
+PTE RANGE 00000000 - c0000000
+Sdram Scramble OTP = 0x00000000
+COPY CODE... DONE
+MICH: security disable
+SSBL
+PINMUX
+CACHE FLUSH OK
+MMU+CACHES ON OK
+CACHE FLUSH OK
+_fbss  0704ed48
+_ebss  07050600
+_end   07050620
+HEAP @ 07050800
+STACK @ 09058800
+ARCH: CONFIG OK
+CLR BSS 0704ed48 to 07050600 OK
+CACHE FLUSH OK
+GO!
+
+    ,/
+  ,'/___, BOLT v0.75 v0.75 RELEASE
+.'__  ,'  (2013-11-22 11:57:57 garpowel@localhost.localdomain)
+   /,'    Copyright (C) 2013 Broadcom Corporation
+  /'
+
+Board: BCM97445SVMB
+SYS_CTRL: product=7445, family=7445c0, strap=000001aa,
+otp @ 0xf0404030 = 0x000000e0: en_cr(0x00000060) en_testport(0x00000080)
+otp @ 0xf0404034 = 0x00000000:
+CPU: 4x A15, 1500 MHz
+RESET CAUSE: 0x000200 software_master (1 of 21 possible causes)
+CS0: ONFI NAND, 4096MB, 1024kB blocks, 8192B page, 27B OOB, BCH-24 (1KB sector)
+NAND: block 90 is bad at address 0x5a00000
+NAND: block 91 is bad at address 0x5b00000
+USB @ 0xf0470200: IPP is active low, IOC is negative polarity
+USB @ 0xf0480200: IPP is active low, IOC is negative polarity
+rts 0 [20130724002622_7445_1u4t] <--
+rts 1 [20131121033854_7252C0_4Kstb]
+rts 2 [20131121030556_7252C0_4K1t]
+rts 3 [20131121032131_7252C0_1u2t]
+RTS0: 0x1101004, 256 clients, ok
+RTS1: 0x1181004, 256 clients, ok
+RTS2: 0x1201004, 256 clients, ok
+
+AUTOBOOT [waitusb -t=0 -d='USB Disk' && batch usbdisk0:sysinit.txt]
+USB device matching <USB Disk> not found!
+BOLT>
+----
+
+If your board does not stop at the `BOLT>` prompt, and instead
+tries to boot an image immediately, hold down ^C while resetting the board.
+This will temporarily disable autoboot; to permanently disable it, type:
+
+----
+unsetenv STARTUP
+----
+
+To boot an initramfs Linux kernel via TFTP, configure the network
+interface and then boot the kernel:
+
+----
+ifconfig -auto eth0
+boot HOST:USER/vmlinuz-initrd-7445c0
+----
+
+initramfs kernels are named "-initrd-" for historical reasons.  They
+contain a full copy of the STB rootfs, so they do not need to mount their
+rootfs from a flash device or hard drive.  initramfs images are large, and
+the rootfs image consumes extra Linux memory.  They are normally used for
+development and for imaging a new system, but typically are not used for
+production STBs.
+
+=== Installing images to flash
+
+To install the non-initramfs kernel image to the `flash0.kernel`
+partition, run these BOLT commands:
+
+----
+ifconfig -auto eth0
+flash HOST:USER/vmlinuz-7445c0 flash0.kernel
+----
+
+Then, boot the initramfs kernel to install the rootfs to flash:
+
+----
+boot HOST:USER/vmlinuz-initrd-7445c0
+
+# wait for Linux to boot to the shell
+
+sleep 10 ; stbutil -a2 HOST:USER
+----
+
+`sleep 10` gives the DHCP client time to request an IP address.
+
+`HOST:USER` provides the TFTP server name and remote path prefix.
+`HOST:` alone may suffice, if the images are in the root of the TFTP
+server's directory.  Typically the files will be copied to
+`/tftpboot/USER/`.
+
+`-a2` selects stbutil option 2, which downloads a UBIFS image
+from the TFTP server and installs it to the `flash0.avail0`
+partition on the primary flash.
+
+After this process has completed, type `reboot` to return to BOLT,
+then:
+
+----
+boot flash0.kernel: "$ROOTFS_ARGS"
+----
+
+Observe the output at the end of stbutil to determine the correct
+$ROOTFS_ARGS.
+
+=== Building a kernel from source code
+
+All steps in this section should be performed as a normal (non-root)
+user.
+
+On the host PC, unpack the source tarballs:
+
+----
+cd /work
+tar -jxf ~/Downloads/rootfs-3.14-0.1.tar.bz2
+tar -jxf ~/Downloads/stblinux-3.14-0.1.tar.bz2
+----
+
+Add the appropriate toolchain binaries to the `PATH`, then verify
+that the correct version is reported.  (The `toolchain` file
+specifies which version of the toolchain should be used in conjunction with
+the rootfs sources.)
+
+----
+cd rootfs
+export PATH=/opt/toolchains/`cat toolchain`/bin:$PATH
+mipsel-linux-gcc -v
+----
+
+To use an optional toolchain, replace the toolchain version in
+`toolchain` file.  Note that a
+<<supported_builds,build variant>> such as "-eglibc" may be
+required.
+
+Pick the target, and start the build:
+
+----
+make images-7445c0
+----
+
+Install the images under `/tftpboot/USER`:
+
+----
+make install
+----
+
+Note that the image name is determined by the <i>chip family ID</i>.
+For instance, `7251a0` chips use the `7439a0` build targets,
+because 7251a0 is based on the same register map as the "parent"
+chip, 7439a0.  The `board2build.pl` script can help determine which
+build target to use for a given chip:
+
+----
+$ bin/board2build.pl 7251a0
+7439a0
+----
+
+After installation under `/tftpboot`, the images can be booted
+from the target as specified above:
+
+----
+ifconfig -auto eth0
+boot HOST:USER/vmlinuz-initrd-7445c0
+----
+
+=== Reporting problems to Broadcom
+
+In order to provide the fastest turnaround time possible, Broadcom has
+developed some basic guidelines for reporting problems with STB Linux.
+Please ensure that all problem reports meet the following criteria:
+
+- Logs should always start when the board is first powered on. All BOLT
+  output should be captured as well.  There are all sorts of valuable clues
+  in the boot logs which may allow us to quickly identify the fault.
+
+- Always provide the unstripped ELF kernel image when sending a kernel
+  oops or crash dump. This lets us trace through the disassembled
+  instructions to see exactly what was happening at the time.
+
+- For any flash- or filesystem-related issues, the log should include
+  every step that writes to the filesystem, including the initial stbutil
+  run.. If the filesystem image in question was not provided by Broadcom,
+  please indicate exactly how it was built, and provide the files and
+  procedures necessary to rebuild it.
+
+- Any information that would allow Broadcom to reproduce the failure
+  (either partially or fully) at our site is extremely valuable.
+
+- For hard (OS) lockups, an EJTAG probe should be used to dump out the
+  registers and stack in order to find out where the system is stuck. On
+  SMP systems, boot with "nosmp" when possible so that the other thread
+  does not interfere with the data collection.
+
+Also, please indicate:
+
+- Is the failure consistently reproducible, or is it random?
+
+- Is the failure limited to a single unit (is it possible to rule out a
+  defective board)?
+
+- Does the failure show up on the most recent STB Linux release, or
+  only an old version?
+
+== Advanced usage
+
+=== Other useful BOLT commands
+
+Help:
+
+----
+help
+----
+
+An example of passing multiple kernel arguments on the command line:
+
+----
+boot flash0.kernel: "root=/dev/sda1 rootwait"
+----
+
+Set up autoboot from the kernel and rootfs images in flash (the
+`-p` option writes the setting to NVRAM; `$ROOTFS_ARGS` can be
+determined by using `stbutil`):
+
+----
+setenv -p STARTUP "boot flash0.kernel: '$ROOTFS_ARGS'"
+----
+
+Associate some BOLT commands with the F-keys on the host PC's keyboard (not
+supported by all terminals):
+
+----
+setenv -p F1 "ifconfig -auto eth0"
+setenv -p F2 "boot flash0.kernel: '$ROOTFS_ARGS'"
+setenv -p F3 "ifconfig -auto eth0 ; boot HOST:USER/vmlinuz-initrd-7445c0"
+----
+
+List BOLT-supported devices and flash partition tables:
+
+----
+show devices
+----
+
+Reprogram the MAC address into flash, for a 97445 board with serial
+number 1234567:
+
+----
+macprog 97445 1234567 1
+----
+
+=== Other stbutil options
+
+The stbutil script offers a number of options that are useful both for
+general development, and to serve as examples for flash setup or upgrade on
+a production system:
+
+----
+ # stbutil
+
+ stbutil v5.0
+ -----------
+
+ Using TFTP server:     stb-bld-00.broadcom.com
+ Using TFTP path:       nightly/2637
+ Linux build target:    7425b0
+
+ Chip ID register:      BCM7425B0
+ Board name:            BCM97425A0
+ CPU:                   Broadcom BMIPS5000
+ Primary Linux flash:   nand
+
+ 1) Install non-initrd kernel image to flash
+ 2) Install UBIFS rootfs to flash (RW/RO)
+ 3) Install JFFS2 rootfs to flash (RW/RO) (not available)
+ 4) Install SQUASHFS rootfs to flash (RO) (uses UBI)
+ 5) Format/partition entire HDD, then install rootfs (not available)
+ 6) Update rootfs on first HDD partition (not available)
+ 7) Install kernel/rootfs to USB thumbdrive (not available)
+ q) Exit
+
+ Selection:
+----
+
+- Option 1: stbutil supports writing the kernel image itself (not just
+the rootfs) to flash.  This feature requires that BOLT define a kernel flash
+partition which ends on an eraseblock boundary, as partitions that do not
+end on an eraseblock boundary are automatically marked read-only by
+mtdpart.  For the most part, the NAND partition maps are suitable, but the
+NOR partition maps are not.
++
+If the primary flash is a NOR flash, this will write the kernel to the
+`flash0.kernel` partition.  If the primary flash is NAND, it will
+use `nandflash0.kernel` .
++
+Both the kernel and rootfs need to be written to the flash in order to
+boot the unit without the network.
+
+- Option 2, UBIFS, is supported on all flash types.  Several UBIFS
+images are generated for each build, in order to accommodate flash devices
+with different eraseblock and page sizes.  This needs to match the flash
+device or ubiformat will generate an error.
+
+- Option 3, JFFS2, is supported on P-NOR and S-NOR flash only.  The
+summary feature is enabled, in order to improve mount times.
+
+- Option 4, SQUASHFS, is supported for all flash types.  On NOR, the
+image is written directly to the flash.  On NAND, the SQUASHFS image is
+written on top of a newly created UBI (not UBIFS) volume.  In this case,
+UBI (via gluebi) provides bad block remapping and handles read disturb.
+
+- Option 5 copies the initramfs rootfs to a SATA (or USB) hard drive.
+It will repartition the drive, wiping out all existing data, and format it
+for ext4.
+
+- Option 6 reformats the first disk partition only (sda1), then
+refreshes the rootfs contents from the initramfs.  The contents of
+sda3/sda4 (/opt and /data) are left undisturbed.  Thus, sda3/sda4 would be
+good locations to store application binaries and video streams.
+
+- Option 7 installs the kernel and rootfs to a USB thumbdrive.  The
+thumbdrive must be inserted and detected prior to running stbutil.  A boot
+command is provided at the end, to allow BOLT to load the kernel directly
+from the thumbdrive.  It is expected that the thumbdrive has a single FAT32
+partition, `/dev/sda1` .
+
+
+=== rootfs type selection
+
+The following table lists some prominent attributes of each supported
+rootfs type:
+
+[cols="1,2,4",options="header"]
+|===============================================================
+| Rootfs type | Kernel arguments | Comments
+
+| initramfs | None.  Just use the "initrd" kernel image. |
+initrd (i.e. initial ramdisk) contents are lost on reboot.  The
+  ramdisk consumes a fair amount of memory.  Fast access times since the
+  files are stored uncompressed in RAM.
+
+| Hard disk | `"root=/dev/sda1 rw"` |
+Add `rootwait` for USB drives.  Generally works best with
+  ext4, but other options exist.
+
+| squashfs | Varies (stbutil will provide the instructions) |
+Fast, compressed, read-only filesystem.  Hard to corrupt.  Good for
+  storing libraries, program files, and other items that do not need to be
+  modified on a regular basis.  Available on NOR/SPI flash (native) and
+  NAND flash (via UBI/gluebi).  Generally preferred to cramfs, although
+  the two filesystems are interchangeable.
+
+| UBIFS | Varies (stbutil will provide the instructions) |
+Robust, compressed read/write flash filesystem.  Relatively fast
+  mount times on large and small flashes.  Available on NOR/NAND/SPI flash.
+  Works well on larger (>=64MB) devices, but JFFS2 may be preferable on
+  smaller devices since the UBI/UBIFS overhead can consume several
+  megabytes.
+
+  For production use, Broadcom recommends using a read-only root filesystem
+  (such as squashfs), and putting volatile data on UBIFS.  Use of a RW
+  UBIFS as the rootfs may be detrimental to the long-term reliability of
+  the platform, since any RW filesystem can eventually be corrupted by
+  unexpected power cycles, write failures, etc.
+
+| JFFS2 | `"root=/dev/mtdblock0 rootfstype=jffs2"` |
+Simple read/write flash filesystem, suitable for smaller partitions
+  on NOR flashes.  The Broadcom releases do not support NAND on JFFS2.
+
+| NFS mount | `"root=/dev/nfs nfsroot=SERVER_IP:SERVER_PATH ip=dhcp rw"` |
+There are many potential points of failure when using nfsroot.  To
+  troubleshoot nfsroot problems, first try mounting the NFS share from the
+  command line, and then if that works, `chroot` to it.
+
+|===============================================================
+
+=== Kernel command line
+
+The entire kernel command line should be enclosed in quotes.
+e.g.
+
+----
+BOLT> boot stb-irva-01:38-2.0/vmlinuz-initrd-7445c0 "bmem=192M@64M bmem=256M@512M libata.force=3.0Gbps"
+----
+
+Omitting the quotes will cause the second and subsequent options to be
+dropped.
+
+Some useful command-line options are listed below:
+
+bmem=_size_@_addr_:: For reserved A/V buffer memory (see the
+link:memory.html[memory appnote] for details)
+
+pci=off, nousb, noflash, nosmp, nopm:: Disable PCI, USB, MTD, SMP, or
+PM.
+
+console=ttySx,115200:: Console on UARTB/UARTC (ttyS1, ttyS2)
+is fully supported.  Early printk can be enabled (default) or disabled,
+through the standard kernel configuration mechanism.
+
+debug:: Show KERN_DEBUG messages (equivalent to `dmesg -n 7` but
+it takes effect at the start of the boot process)
+
+initcall_debug:: Show each initcall entry/exit (lots of output)
+
+sata3_ssc:: SATA3 chips only: can be used without arguments (i.e., all
+ports) or with a comma-separated list of SATA port numbers (indexed from 0).
+Enables spread-spectrum clocking in order to reduce electromagnetic radiation
+produced by the interface.
+
+libata.force=3.0Gbps::
+  SATA3 chips only: force SATA2 PHY rates
+  (3.0Gbps).  The default on SATA3 chipsets is to try to autonegotiate
+  SATA3 rates (6.0Gbps), then fall back to 3.0Gbps or 1.5Gbps if the
+  drive does not support SATA3.
+
+root, rootfstype, and friends::
+  root=/dev/sda1;; rootfs (nominally ext3 or ext4) on SATA
+
+  ro;; mount rootfs read-only (default is read/write)
+
+  root=/dev/mtdblock0 rootfstype=jffs2;; Boot from the jffs2
+  filesystem on the MTD rootfs partition (NOR only)
+
+  ubi.mtd=flash<X>.rootfs0 rootfstype=ubifs root=ubi0:rootfs;; Attach
+  UBI to the MTD rootfs partition, then boot from the UBIFS filesystem on the UBI
+  'rootfs' volume. (Because flash configurations may vary, please use stbutil to
+  determine the correct parameters.)
+
+  nfsroot=SERVER:ROOTDIR ip=dhcp;; Mount the NFS-exported directory
+  ROOTDIR on host SERVER as the root filesystem, after obtaining an IP
+  for the STB via DHCP.
+
+mtdparts:: Override the default MTD partition tables from the kernel
+command line.  Example for NOR flash:
++
+----
+mtdparts=physmap-flash.0:8M(rootfs),52M(data),4M(cfe)
+----
++
+"physmap-flash.0" is the device name for NOR; for NAND, use
+"brcmnand.0"; for SPI use "m25p80.0".
+
+=== Build system usage
+
+[[supported_builds]]
+==== Supported builds
+
+Linux builds are per-chip-family, not per-board.  Board differences are
+handled at runtime, as are minor chip variations (e.g. 7230 vs. 7231; both
+use the same register map so they are considered part of the same chip
+family).
+
+Each build generally enables all supported chip features (SMP, NOR,
+NAND, SPI, etc.).  Features are detected at runtime wherever possible.
+There are occasional exceptions, usually involving features that are not
+available by default on the reference board.
+
+`bin/config.pl` is a helper script that modifies the base
+configuration files (`defaults/config.*`) on the fly to set the
+appropriate options for a particular build.  These options can be based on
+build variants, LE/BE, and sometimes chip features.
+
+There are several "variant" builds supported at the time of this writing:
+
+-eglibc:: Use eglibc as the C library; this is a no-op on
+ stblinux-3.14 which uses eglibc by default.
+-gdb:: Enable native gdb debugger on the target
+-kdebug:: Enable kernel debugging features (spinlock checks, full
+  debug symbols, etc.)
+-kgdb:: KGDB kernel
+-netfilter:: Enable netfilter and iptables
+-nousb:: Disable USB support (host/device drivers)
+-nomtd:: Disable MTD (flash) support (drivers, mtd-utils)
+-nohdd:: Disable hard disk support (fdisk, e2fsprogs, ATA/SCSI drivers)
+-nonet:: Disable networking (drivers, ifconfig, etc.)
+-opf:: Oprofile kernel
+-perf:: Perf kernel
+-small:: Small rootfs image with most features disabled
+-uclibc:: Use uClibc as the C library.  Requires a toolchain that
+ supports uClibc (stbgcc-4.8 binary releases do not support uClibc)
+
+These modifiers can be combined, e.g.
+"images-7231b0-small-nohdd-netfilter" might make sense for an IPTV STB with
+no USB or SATA hard drive support.
+
+Not all combinations are supported, and all should be considered
+untested.  They are only provided as a starting point.  To see what
+configuration options they are affecting, please refer to
+`rootfs/bin/config.pl` .
+
+Also note that changing the kernel configuration could affect binary
+compatibility with kernel modules.  All `*.ko` files should be
+rebuilt any time the kernel configuration or source tree is changed.
+
+==== Basic build system usage (using the default settings)
+
+----
+# Build rootfs, kernels, and flash images for 7445c0
+cd rootfs
+make images-7445c0
+
+# Build initramfs (builtin rootfs) and non-initramfs kernels, but no flash images
+make kernels-7445c0
+
+# Build just the initramfs kernel
+make vmlinuz-initrd-7445c0
+
+# Build the kernel only, no rootfs or flash images
+make vmlinuz-7445c0
+----
+
+All images will be copied to the `images/` directory (which is not
+erased by distclean/clean).  To copy them elsewhere:
+
+----
+# Install images to /tftpboot/$USER
+make install
+
+# Install to a custom location
+make install TFTPDIR=/tftpboot/newbuild
+----
+
+The `make install` target will overwrite any pre-existing
+image(s) in `$TFTPDIR` with the same name as any of the files in
+`images/` .  To avoid this, use separate `$TFTPDIR`
+directories, or copy the files by hand.
+
+Variant builds:
+
+----
+# Build a non-initramfs kernel with KGDB enabled
+make vmlinuz-7445c0-kgdb
+
+# Build the perf initramfs kernel
+make vmlinuz-initrd-7445c0-perf
+
+# Build an initramfs kernel with the -small rootfs:
+make vmlinuz-initrd-7445c0-small
+
+# Combining variants
+make images-7445c0-small-nohdd
+----
+
+==== Customization
+
+----
+# Set up the defaults for 7445c0, but don't build anything yet
+make defaults-7445c0
+# OPTIONAL: edit the kernel configuration
+make menuconfig-linux
+# OPTIONAL: edit the busybox configuration
+make menuconfig-busybox
+# OPTIONAL: edit the uClibc configuration
+make menuconfig-uclibc
+# OPTIONAL: edit the vendor configuration (rootfs utilities)
+make menuconfig-vendor
+----
+
+Individual linux/busybox/vendor/uclibc options can also be changed from the
+command line:
+
+----
+# Enable tcpdump and ntfs-3g; disable JFFS2 kernel support
+perl -w bin/config.pl vendor CONFIG_USER_TCPDUMP_TCPDUMP=y CONFIG_USER_NTFS_3G=y
+perl -w bin/config.pl linux CONFIG_JFFS2_FS=n
+# Fix up dependencies
+make oldconfig
+----
+
+After customizing the configuration, any of the following items can be
+built:
+
+----
+# (Re)build rootfs + kernels + flash images using the new configuration
+make
+# synonym: make images
+
+# (Re)build rootfs + initramfs kernel
+make initrd_kernel
+
+# (Re)build non-initramfs kernel
+make kernel
+----
+
+These builds may be rerun multiple times (e.g. after changing the
+configuration again, or after modifying files under `user/`, `lib/`,
+or `linux/`).
+
+The variant builds are supported the same way:
+
+----
+# Start off with the -small rootfs
+make defaults-7445c0-small
+# Edit the busybox configuration to reinstate some missing features
+make menuconfig-busybox
+# Build all images
+make
+----
+
+==== Adding programs to the rootfs
+
+Any time the `initrd_kernel` or `images` target is invoked, the build
+system will erase the `romfs/` directory and copy over a fresh version
+of the `skel/` directory.  Application binaries or other files may be
+added to the `skel/` hierarchy if desired.
+
+The main startup script is `skel/etc/init.d/rcS`.  This may be
+modified to fit the needs of the STB application.  Alternatively, if
+`skel/root/rc.user` exists, `rcS` will source it at the end of the
+boot process.  `rc.user` may contain commands that start up the user
+application, e.g.
+
+----
+cd /app
+settop install
+settop brutus -tty
+----
+
+Additional packages may also be added to the uclinux "vendor" builds.
+The relevant files are:
+
+- `config/config.in` - to add the new program to the "vendor" menuconfig
+- `{user,lib}/Makefile` - to add it to the build, if the option is enabled
+- `{user,lib}/<progname>/Makefile` - new Makefile for the package
+
+Please refer to the Broadcom utilities referenced in `config.in` for
+examples.
+
+To add open source packages to the uclinux build system, it is usually
+necessary to add a lower-case `makefile` to override the default build
+targets.  autoconf-based packages can use a `makefile` modeled on
+`user/{bash,iptables}/makefile` or `lib/ncurses/makefile` .
+Non-autoconf based packages can use a `makefile` modeled on
+`user/{mtdutils,procps}/makefile` or `lib/openssl/makefile` .
+
+If a substantial amount of new data is added to the rootfs, the
+defaults in `rootfs/bin/build_rootfs_images.sh` may need
+to be changed.  Two common modifications are:
+
+- Increasing `max_leb_cnt` for UBIFS, especially if the filesystem
+exceeds 32MB.  If this is required, `mkfs.ubifs` will abort with an
+error message.
+
+- Commenting out `make_ubi_img` and `make_jffs2_img` lines
+corresponding to eraseblock/page sizes that are not going to be used in
+a given project.
+
+
+==== Adding kernel modules to the rootfs
+
+Sometimes it is desirable to build certain drivers as kernel modules.  For
+instance, the USB drivers alone can add a few seconds to the boot process.
+If they are not needed in order to bring up the application, it may be
+prudent to build them as modules and then load them in the background after
+the UI is already running.  Here are the steps to follow:
+
+  1. Set the platform defaults, then enter the kernel configuration
+  menu:
++
+----
+cd rootfs
+make defaults-7445c0
+make menuconfig-linux
+----
+
+  2. Select "Device Drivers", then "USB support".  On "Support for
+  Host-side USB" (CONFIG_USB) hit SPACE twice to build the USB subsystem as
+  modules.
+
+  3. Save and exit.
+
+  4. Build the modules, then install them under the "skel" rootfs
+  skeleton:
++
+----
+make -C linux
+make -C linux modules_install INSTALL_MOD_PATH=`pwd`/skel DEPMOD=`pwd`/bin/arm-linux-depmod
+----
+
+  5. Finish building the rootfs, kernel images, and flash images:
++
+----
+make images
+----
+
+  6. Boot the new initramfs kernel image on the target
+  (`images/vmlinuz-initrd-7445c0`), and use "modprobe" to install the
+  desired USB drivers:
++
+----
+modprobe ehci-hcd
+modprobe ohci-hcd
+modprobe usb-storage
+modprobe usbnet
+----
+
+Standalone or proprietary modules (e.g. bcmdriver.ko or wl.ko) can be
+installed anywhere convenient in the `skel/` tree, because they usually
+do not depend on other modules from the kernel build.
+
+==== ADVANCED TOPIC: Build system internals
+
+The build defaults are stored in two places:
+
+Busybox, uClibc, and vendor defaults are in `rootfs/defaults`.  They
+are the same for all targets.
+
+Kernel defaults for 28nm BRCMSTB are in
+`linux/arch/arm/config/brcmstb_defconfig`.  Target-specific
+(7445d0, 7439b0, etc.) configuration is applied by
+`rootfs/bin/config.pl`, though this consists largely of enabling the
+chip's family config option, e.g., `CONFIG_BCM7445D0=y` for 7445d0.
+
+(Note that `rootfs/linux` is a symlink to the top-level `linux`
+directory.)
+
+`make defaults-<target>` invokes `bin/config.pl` to these files into
+place:
+
+- defaults/config.uClibc -> lib/uClibc/.config
+- defaults/config.busybox -> user/busybox/.config
+- defaults/config.vendor -> config/.config
+- linux/arch/arm/configs/brcmstb_defconfig -> linux-2.6.x/.config
+
+`config.pl` also makes a number of changes to these files before
+writing them out.  Some examples include:
+
+- Setting the proper endianness in the kernel and uClibc configurations
+- Enabling rootfs utilities needed to support Broadcom onchip devices
+(e.g. MoCA, power management)
+- Disabling features to create the -small images
+- Changing kernel/rootfs defaults to create the variant (-kgdb, -opf)
+  builds
+
+`make save_defaults` copies the current configuration back to the
+`defaults/` and `configs/` directories, permanently overwriting
+whatever was there.  Variant builds might not work as expected after
+changing the build defaults.
+
+Precompiled host-side utilities (`mkfs.jffs2`, `ubinize`, etc.) are shipped in
+`bin/` .  These are built on a very old IA32 system in the hopes that the
+binaries will remain forward compatible with most systems in use today.  If
+you do need to rebuild them (rare), run "make" in the rootfs/host
+directory.
+
+Partial rootfs builds can be done with the `SUBDIRS` option:
+
+----
+# Rebuild busybox, then regenerate the initramfs kernel
+make initrd_kernel SUBDIRS="user/busybox"
+
+# Just rebuild the kernel, not anything under lib/ or user/
+make initrd_kernel SUBDIRS="linux"
+----
+
+This should be used with caution, as skipping parts of the build process
+may produce unexpected results.
+
+=== Building drivers against the STB kernel
+
+As a general rule:
+
+- *User programs and libraries* do not need to be built against
+  any particular kernel tree.  However, it is important to ensure that the
+  libc version in the toolchain matches the libc version in the rootfs.
+  i.e. building with a uClibc 0.9.32-based toolchain and running the
+  program in a uClibc 0.9.29-based rootfs is likely to fail, because uClibc
+  does not guarantee binary compatibility between releases.  Also, building
+  an application with a soft-float toolchain will break compatibility with
+  a hard-float rootfs.
+
+- *Kernel modules* (`*.ko`) must be built against the same kernel
+  image that is being run on the target system.  There is no standard ABI
+  for Linux kernel modules, and small tweaks to the kernel configuration or
+  headers can break compatibility.
+
+One indication that a kernel module has not been built against the
+current kernel tree is symbol version disagreement:
+
+----
+# insmod wl.ko
+wl: disagrees about version of symbol filp_open
+wl: Unknown symbol filp_open (err -22)
+wl: disagrees about version of symbol dev_get_drvdata
+wl: Unknown symbol dev_get_drvdata (err -22)
+insmod: can't insert 'wl.ko': Invalid argument
+----
+
+This is an intentional feature (enabled by `CONFIG_MODVERSIONS`)
+that prevents mismatched modules from loading, as ABI mismatches can
+produce strange errors that are hard to troubleshoot.
+
+==== Standalone installation
+
+The basic steps for building modules out-of tree look something like:
+
+----
+cd /work
+tar -jxf ~/Downloads/rootfs-3.14-0.1.tar.bz2
+tar -jxf ~/Downloads/stblinux-3.14-0.1.tar.bz2
+export PATH=/opt/toolchains/`cat rootfs/toolchain`/bin:$PATH
+make -C rootfs vmlinuz-7445c0
+
+mkdir testmod
+echo '#include <linux/module.h>' > testmod/module.c
+echo 'int init(void) { return 0; }' >> testmod/module.c
+echo 'module_init(init);' >> testmod/module.c
+echo 'obj-m += module.o' > testmod/Makefile
+make -C linux KBUILD_EXTMOD=`pwd`/testmod
+----
+
+It is crucial to start the process by building the entire kernel tree,
+so that the module linker scripts can look at the `vmlinux` ELF
+kernel image, `Module.symvers`, and other important files.
+*Merely untarring the kernel sources is not sufficient for building
+kernel modules.*  The kernel tree must be configured and built.
+
+==== Shared installation
+
+Use of a shared kernel tree is complicated by several factors:
+
+- If different types of host systems are accessing the tree (32-bit vs.
+  64-bit, RHEL vs. Debian, RHEL4 vs. RHEL5, etc.), the binaries under
+  `linux/scripts` might not be compatible across all of
+  the clients.  This can result in a number of different failures when
+  attempting to execute the binaries on an incompatible host, including:
++
+  Segmentation fault
+  Floating point exception
+  Bus error
+  cannot execute binary file
+  GLIBC_* symbol version mismatch
+
+- Various parts of the build process may try to write to directories
+  under the kernel tree.  This may cause contention between the various
+  users, and result in intermittent failures.  This is particularly true if
+  different clients are trying to use different kernel configurations
+  (debug vs. release, 7425 vs. 7346, etc.).
+
+- If the shared installation is on NFS, system clock skew between the
+  various clients may result in inconsistent perception of file modification
+  times.
+
+For these reasons, Broadcom does not currently recommend the use of a
+shared tree.
+
+== STB kernel internals
+
+=== Drivers/BSP
+
+Some of the major components of the STB Linux kernel include:
+
+`include/linux/brcmstb/`, `include/uapi/linux/brcmstb`:: common
+  definitions, APIs, and register layouts for STB platforms
+
+`arch/arm/mach-bcm/*brcmstb.c`:: basic chip/board/platform_device,
+  SMP, and PCIe support
+
+`drivers/ata/sata_brcmstb*.[ch]`:: SATA support
+
+`drivers/bus/brcmstb_gisb.c`:: GISB bus arbiter
+
+`drivers/char/bmoca.c`:: MoCA control path driver
+
+`drivers/clk/clk-brcmstb.c`:: clock driver
+
+`drivers/i2c/busses/i2c-brcmstb.c`:: Broadcom Serial Control (BSC)
+  master driver
+
+`drivers/irqchip/irq-brcmstb-l2.c`:: Broadcom STB Level-2 interrupt
+  controller
+
+`drivers/irqchip/irq-bcm7120-l2.c`:: Broadcom BCM7120-style Level-2
+  interrupt controller
+
+`drivers/mmc/host/sdhci-brcmstb.c`:: SDHCI support
+
+`drivers/mtd/nand/brcmstb_nand.c`:: NAND flash support
+
+`drivers/net/bcmgenet/`:: GENET datapath driver
+
+`drivers/power/reset/brcmstb-reboot.c`:: Reboot support
+
+`drivers/spi/spi-brcmstb.c`:: SPI flash support
+
+`drivers/soc/brcmstb`:: SoC-specific drivers, including: BMEM,
+BRCMSTB CMA, DDR self-refresh power down, and waketimer
+
+`drivers/soc/brcmstb/pm`:: Power management and S2/S3/S5 standby
+
+`drivers/thermal/brcmstb_thermal.c`:: AVS TMON thermal sensor driver
+
+`drivers/usb/host/{ehci,ohci,usb,xhci}-brcm.[ch]`:: USB drivers
+
+=== BOLT/bootloader dependencies
+
+A number of operating parameters are obtained from the bootloader via
+the device tree blob passed to the kernel.  If a different bootloader
+is used in place of BOLT, this functionality may need to be provided by
+another software module.
+
+Note that if the splash screen feature is active (`config SPLASH on`),
+this means that the BVN hardware will constantly access DRAM in the background
+until it is explicitly stopped or put in reset.  This can have implications on
+Linux:
+
+- Overwriting the framebuffer memory or RULs can cause the BVN hardware
+to malfunction, possibly locking up the register bus and causing the
+system to hang.  These buffers are normally located in the memory
+reservation block indicated in the device tree blob passed to Linux,
+so the memory in use will not be available to the OS and will be
+overwritten when the default settings are used.  Care must be taken
+when modifying the reserved regions; the splash regions may need to be
+moved out of the way.
+
+- Splash consumes memory bandwidth and may affect benchmark results or
+timing.
+
+- When entering passive standby mode for power management, all DRAM
+activity needs to be halted since this mode disables the memory controller.
+If clients are still actively accessing DRAM in the background (splash
+screen or anything else), system stability will be adversely affected.  A
+common symptom is that the system can only recover from standby once, and
+hangs on the next attempt.  A similar failure can be caused by neglecting
+to stop the 71xx BNM (eCM) prior to entering passive standby.
+
+Starting up Nexus will disable the splash screen.  These concerns mostly
+involve situations where Linux is booted but the application is not
+started immediately.
