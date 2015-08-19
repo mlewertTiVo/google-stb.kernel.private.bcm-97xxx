@@ -29,6 +29,14 @@ extern void cma_alloc_prof_save_stats(struct cma *cma, ktime_t *tstart);
 #define cma_alloc_prof_save_stats(cma, tstart) { }
 #endif
 
+#ifdef CONFIG_CMA_ALLOC_FREE_CALL_COUNTERS
+extern void cma_alloc_call_counter_inc(struct cma *cma);
+extern void cma_free_call_counter_inc(struct cma *cma);
+#else
+#define cma_alloc_call_counter_inc(cma) { }
+#define cma_free_call_counter_inc(cma) { }
+#endif
+
 extern struct cma cma_areas[MAX_CMA_AREAS];
 extern unsigned cma_area_count;
 

@@ -388,6 +388,7 @@ struct page *cma_alloc(struct cma *cma, int count, unsigned int align)
 	if (!count)
 		return NULL;
 
+	cma_alloc_call_counter_inc(cma);
 	cma_alloc_prof_start_ts(cma, &tstart);
 	mask = cma_bitmap_aligned_mask(cma, align);
 	offset = cma_bitmap_aligned_offset(cma, align);
@@ -467,6 +468,7 @@ bool cma_release(struct cma *cma, struct page *pages, int count)
 
 	VM_BUG_ON(pfn + count > cma->base_pfn + cma->count);
 
+	cma_free_call_counter_inc(cma);
 	free_contig_range(pfn, count);
 	adjust_managed_cma_page_count(page_zone(pages), count);
 	cma_clear_bitmap(cma, pfn, count);

@@ -30,7 +30,19 @@
 #include <linux/mii.h>
 #include <linux/if_vlan.h>
 #include <linux/phy.h>
-#include <linux/brcmstb/brcmstb.h>
+
+/* BCMGENET device tree properties */
+#define BRCM_PHY_ID_AUTO	0x100
+#define BRCM_PHY_ID_NONE	0x101
+
+#define BRCM_PHY_TYPE_INT	1
+#define BRCM_PHY_TYPE_EXT_MII	2
+#define BRCM_PHY_TYPE_EXT_RVMII	3
+#define BRCM_PHY_TYPE_EXT_RGMII	4
+#define BRCM_PHY_TYPE_EXT_RGMII_IBS	5
+#define BRCM_PHY_TYPE_EXT_RGMII_NO_ID	6
+#define BRCM_PHY_TYPE_MOCA	7
+
 
 /* total number of Buffer Descriptors, same for Rx/Tx */
 #define TOTAL_DESC				256
@@ -579,6 +591,7 @@ struct bcmgenet_priv {
 	wait_queue_head_t	wq;		/* mii wait queue */
 	struct phy_device *phydev;
 	struct device_node *phy_dn;
+	struct device_node *mdio_dn;
 	struct mii_bus *mii_bus;
 	u16 gphy_rev;
 	struct clk *clk_eee;
@@ -666,8 +679,8 @@ void bcmgenet_wol_power_up_cfg(struct bcmgenet_priv *priv,
 
 int bcmgenet_mii_init(struct net_device *dev);
 int bcmgenet_mii_config(struct net_device *dev, bool init);
+int bcmgenet_mii_probe(struct net_device *dev);
 void bcmgenet_mii_exit(struct net_device *dev);
-void bcmgenet_mii_reset(struct net_device *dev);
 void bcmgenet_phy_power_set(struct net_device *dev, bool enable);
 void bcmgenet_mii_setup(struct net_device *dev);
 

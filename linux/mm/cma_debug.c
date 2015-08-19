@@ -159,6 +159,18 @@ void cma_alloc_prof_save_stats(struct cma *cma, ktime_t *tstart)
 }
 #endif
 
+#ifdef CONFIG_CMA_ALLOC_FREE_CALL_COUNTERS
+void cma_alloc_call_counter_inc(struct cma *cma)
+{
+	atomic64_inc(&cma->alloc_call_cnt);
+}
+
+void cma_free_call_counter_inc(struct cma *cma)
+{
+	atomic64_inc(&cma->free_call_cnt);
+}
+#endif
+
 static int cma_debugfs_get(void *data, u64 *val)
 {
 	unsigned long *p = data;
@@ -464,6 +476,63 @@ static const struct file_operations cma_alloc_latency_fops = {
 };
 #endif
 
+#ifdef CONFIG_CMA_ALLOC_FREE_CALL_COUNTERS
+static int cma_alloc_call_cnt_get(void *data, u64 *val)
+{
+	struct cma *cma = data;
+
+	if (!cma)
+		return -EINVAL;
+
+	*val = atomic64_read(&cma->alloc_call_cnt);
+
+	return 0;
+}
+
+static int cma_alloc_call_cnt_clear(void *data, u64 val)
+{
+	struct cma *cma = data;
+
+	if (!cma)
+		return -EINVAL;
+
+	atomic64_set(&cma->alloc_call_cnt, 0);
+
+	return 0;
+}
+
+DEFINE_SIMPLE_ATTRIBUTE(cma_alloc_call_cnt_fops, cma_alloc_call_cnt_get,
+			cma_alloc_call_cnt_clear, "%llu\n");
+
+static int cma_free_call_cnt_get(void *data, u64 *val)
+{
+	struct cma *cma = data;
+
+	if (!cma)
+		return -EINVAL;
+
+	*val = atomic64_read(&cma->free_call_cnt);
+
+	return 0;
+}
+
+static int cma_free_call_cnt_clear(void *data, u64 val)
+{
+	struct cma *cma = data;
+
+	if (!cma)
+		return -EINVAL;
+
+	atomic64_set(&cma->free_call_cnt, 0);
+
+	return 0;
+}
+
+DEFINE_SIMPLE_ATTRIBUTE(cma_free_call_cnt_fops, cma_free_call_cnt_get,
+			cma_free_call_cnt_clear, "%llu\n");
+#endif
+
+
 static void cma_debugfs_add_one(struct cma *cma, int idx)
 {
 	struct dentry *tmp;
@@ -501,6 +570,12 @@ static void cma_debugfs_add_one(struct cma *cma, int idx)
 #ifdef CONFIG_CMA_ALLOC_PROFILER
 	debugfs_create_file("alloc_latency", (S_IRUGO | S_IWUSR), tmp, cma,
 				&cma_alloc_latency_fops);
+#endif
+#ifdef CONFIG_CMA_ALLOC_FREE_CALL_COUNTERS
+	debugfs_create_file("alloc_call_cnt", (S_IRUGO | S_IWUSR), tmp, cma,
+				&cma_alloc_call_cnt_fops);
+	debugfs_create_file("free_call_cnt", (S_IRUGO | S_IWUSR), tmp, cma,
+				&cma_free_call_cnt_fops);
 #endif
 }
 

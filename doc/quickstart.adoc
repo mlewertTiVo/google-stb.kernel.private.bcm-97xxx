@@ -1073,7 +1073,17 @@ Some of the major components of the STB Linux kernel include:
 
 `drivers/mtd/nand/brcmstb_nand.c`:: NAND flash support
 
-`drivers/net/bcmgenet/`:: GENET datapath driver
+`drivers/net/phy/bcm7xxx.c`:: Broadcom BCM7xxx internal Gigabit PHY driver
+
+`drivers/net/phy/mdio-unimac.c`:: Broadcom UniMAC MDIO bus controller driver
+
+`drivers/net/dsa/bcm_sf2.c`:: Broadcom Starfighter2 internal switch driver
+
+`drivers/net/ethernet/broadcom/bcmsysport.[ch]`:: SYSTEMPORT Ethernet MAC
+  controller driver
+
+`drivers/net/ethernet/broadcom/bcmgenet`:: GENET Ethernet MAC controller
+  driver
 
 `drivers/power/reset/brcmstb-reboot.c`:: Reboot support
 

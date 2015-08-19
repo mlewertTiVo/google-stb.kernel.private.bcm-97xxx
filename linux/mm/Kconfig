@@ -547,6 +547,17 @@ config CMA_ALLOC_PROFILER
 	  statitics can be reset by echoing into the same debugfs file.
 	  For example: echo > /sys/kernel/debug/cma-<N>/alloc_latency
 
+config CMA_ALLOC_FREE_CALL_COUNTERS
+	bool "CMA allocation and free call counters"
+	depends on CMA_DEBUGFS
+	help
+	  Turns on CMA allocation and free call counters. When enabled this
+	  feature keeps track of the number of CMA allocation and free calls
+	  within a CMA region, which can be accessed through
+	  /sys/kernel/debug/cma-<N>/[alloc|free]_call_cnt. The counters can
+	  be reset by echoing into the same debugfs files.
+	  For example: echo > /sys/kernel/debug/cma-<N>/[alloc|free]_call_cnt
+
 config CMA_AREAS
 	int "Maximum count of the CMA areas"
 	depends on CMA

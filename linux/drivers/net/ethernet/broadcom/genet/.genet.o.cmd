@@ -1,1 +1,0 @@
-cmd_drivers/net/ethernet/broadcom/genet/genet.o := arm-linux-gnueabihf-ld -EL    -r -o drivers/net/ethernet/broadcom/genet/genet.o drivers/net/ethernet/broadcom/genet/bcmgenet.o drivers/net/ethernet/broadcom/genet/bcmmii.o drivers/net/ethernet/broadcom/genet/bcmgenet_wol.o 

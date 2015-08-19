@@ -39,7 +39,7 @@ following capabilities with respect to these reserved regions:
    cached/uncached `ioremap()` to these regions from kernel drivers.
 
 By default, all of HIGHMEM within the 32-bit address space on MEMC0,
-MEMC1, and MEMC2 are set aside as CMA.  Consult the hardware
+MEMC1, and MEMC2 are set aside as BMEM.  Consult the hardware
 documentation to get a comprehensive view of the system memory for
 your chip and what memory will be in this default reservation.  This
 default can be overridden with different regions or disabled by
@@ -70,9 +70,9 @@ Same as above, except that instead of the second reserved region
 being BMEM, it will be CMA.
 
 | [no options] |
-The default behavior is to create a CMA region ranging from 256MB
+The default behavior is to create a BMEM region ranging from 256MB
 (0x1000_0000) up to the end of the first memory controller in the
-32-bit address space, then create CMA regions for all of the memory
+32-bit address space, then create BMEM regions for all of the memory
 on the other memory controllers.  For boards with memory above the
 32-bit address range, the default is to have the first 64MB reserved
 in those regions and to leave the rest for Linux.

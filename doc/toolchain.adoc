@@ -1,6 +1,6 @@
 = STB Linux Toolchain
 Broadcom Corporation <support@broadcom.com>
-v1.0, 2015-06-03: Converted to asciidoc and added Ubuntu 14.04 LTS requirements
+v1.1, 2015-06-30: Note required vagrant version.
 :toc:
 :source-highlighter: coderay
 
@@ -45,6 +45,8 @@ Alternatively, the old method of configuring your own machine as a
 build system.
 
 ==== Building the toolchain using Vagrant
+
+NOTE: Vagrant version 1.5.0 or newer is required.
 
 In order to build the toolchain using Vagrant, please install
 https://www.virtualbox.org/[Virtualbox] and

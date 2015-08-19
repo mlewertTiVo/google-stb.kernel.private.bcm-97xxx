@@ -14,6 +14,7 @@
 #include <linux/netdevice.h>
 #include <linux/err.h>
 #include <linux/phy.h>
+#include <linux/phy_fixed.h>
 #include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/of_mdio.h>
@@ -68,6 +69,9 @@ static int of_mdiobus_register_phy(struct mii_bus *mdio, struct device_node *chi
 			phy->irq = mdio->irq[addr];
 	}
 
+	if (of_property_read_bool(child, "broken-turn-around"))
+		mdio->phy_ignore_ta_mask |= 1 << addr;
+
 	/* Associate the OF node with the device structure so it
 	 * can be looked up later */
 	of_node_get(child);
@@ -93,6 +97,28 @@ static int of_mdiobus_register_phy(struct mii_bus *mdio, struct device_node *chi
 	return 0;
 }
 
+int of_mdio_parse_addr(struct device *dev, const struct device_node *np)
+{
+	u32 addr;
+	int ret;
+
+	ret = of_property_read_u32(np, "reg", &addr);
+	if (ret < 0) {
+		dev_err(dev, "%s has invalid PHY address\n", np->full_name);
+		return ret;
+	}
+
+	/* A PHY must have a reg property in the range [0-31] */
+	if (addr >= PHY_MAX_ADDR) {
+		dev_err(dev, "%s PHY address %i is too large\n",
+			np->full_name, addr);
+		return -EINVAL;
+	}
+
+	return addr;
+}
+EXPORT_SYMBOL(of_mdio_parse_addr);
+
 /**
  * of_mdiobus_register - Register mii_bus and create PHYs from the device tree
  * @mdio: pointer to mii_bus structure
@@ -105,9 +131,8 @@ int of_mdiobus_register(struct mii_bus *mdio, struct device_node *np)
 {
 	struct device_node *child;
 	const __be32 *paddr;
-	u32 addr;
 	bool scanphys = false;
-	int rc, i, len;
+	int addr, rc, i;
 
 	/* Mask out all PHYs from auto probing.  Instead the PHYs listed in
 	 * the device tree are populated after the bus has been registered */
@@ -127,19 +152,9 @@ int of_mdiobus_register(struct mii_bus *mdio, struct device_node *np)
 
 	/* Loop over the child nodes and register a phy_device for each one */
 	for_each_available_child_of_node(np, child) {
-		/* A PHY must have a reg property in the range [0-31] */
-		paddr = of_get_property(child, "reg", &len);
-		if (!paddr || len < sizeof(*paddr)) {
+		addr = of_mdio_parse_addr(&mdio->dev, child);
+		if (addr < 0) {
 			scanphys = true;
-			dev_err(&mdio->dev, "%s has invalid PHY address\n",
-				child->full_name);
-			continue;
-		}
-
-		addr = be32_to_cpup(paddr);
-		if (addr >= PHY_MAX_ADDR) {
-			dev_err(&mdio->dev, "%s PHY address %i is too large\n",
-				child->full_name, addr);
 			continue;
 		}
 
@@ -154,7 +169,7 @@ int of_mdiobus_register(struct mii_bus *mdio, struct device_node *np)
 	/* auto scan for PHYs with empty reg property */
 	for_each_available_child_of_node(np, child) {
 		/* Skip PHYs with reg property set */
-		paddr = of_get_property(child, "reg", &len);
+		paddr = of_get_property(child, "reg", NULL);
 		if (paddr)
 			continue;
 
@@ -285,3 +300,71 @@ struct phy_device *of_phy_attach(struct net_device *dev,
 	return phy_attach_direct(dev, phy, flags, iface) ? NULL : phy;
 }
 EXPORT_SYMBOL(of_phy_attach);
+
+#if defined(CONFIG_FIXED_PHY)
+/*
+ * of_phy_is_fixed_link() and of_phy_register_fixed_link() must
+ * support two DT bindings:
+ * - the old DT binding, where 'fixed-link' was a property with 5
+ *   cells encoding various informations about the fixed PHY
+ * - the new DT binding, where 'fixed-link' is a sub-node of the
+ *   Ethernet device.
+ */
+bool of_phy_is_fixed_link(struct device_node *np)
+{
+	struct device_node *dn;
+	int len;
+
+	/* New binding */
+	dn = of_get_child_by_name(np, "fixed-link");
+	if (dn) {
+		of_node_put(dn);
+		return true;
+	}
+
+	/* Old binding */
+	if (of_get_property(np, "fixed-link", &len) &&
+	    len == (5 * sizeof(__be32)))
+		return true;
+
+	return false;
+}
+EXPORT_SYMBOL(of_phy_is_fixed_link);
+
+int of_phy_register_fixed_link(struct device_node *np)
+{
+	struct fixed_phy_status status = {};
+	struct device_node *fixed_link_node;
+	const __be32 *fixed_link_prop;
+	int len;
+
+	/* New binding */
+	fixed_link_node = of_get_child_by_name(np, "fixed-link");
+	if (fixed_link_node) {
+		status.link = 1;
+		status.duplex = of_property_read_bool(fixed_link_node,
+						      "full-duplex");
+		if (of_property_read_u32(fixed_link_node, "speed", &status.speed))
+			return -EINVAL;
+		status.pause = of_property_read_bool(fixed_link_node, "pause");
+		status.asym_pause = of_property_read_bool(fixed_link_node,
+							  "asym-pause");
+		of_node_put(fixed_link_node);
+		return fixed_phy_register(PHY_POLL, &status, np);
+	}
+
+	/* Old binding */
+	fixed_link_prop = of_get_property(np, "fixed-link", &len);
+	if (fixed_link_prop && len == (5 * sizeof(__be32))) {
+		status.link = 1;
+		status.duplex = be32_to_cpu(fixed_link_prop[1]);
+		status.speed = be32_to_cpu(fixed_link_prop[2]);
+		status.pause = be32_to_cpu(fixed_link_prop[3]);
+		status.asym_pause = be32_to_cpu(fixed_link_prop[4]);
+		return fixed_phy_register(PHY_POLL, &status, np);
+	}
+
+	return -ENODEV;
+}
+EXPORT_SYMBOL(of_phy_register_fixed_link);
+#endif

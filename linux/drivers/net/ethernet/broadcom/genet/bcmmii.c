@@ -62,7 +62,8 @@ static int bcmgenet_mii_read(struct mii_bus *bus, int phy_id, int location)
 	/* Don't check error codes from switches, as some of them are
 	 * known to return MDIO_READ_FAIL on good transactions
 	 */
-	if (!priv->sw_type && (ret & MDIO_READ_FAIL)) {
+	if (!(bus->phy_ignore_ta_mask & 1 << phy_id) &&
+	    (ret & MDIO_READ_FAIL)) {
 		netif_dbg(priv, hw, dev, "MDIO read failure\n");
 		ret = 0;
 	}
@@ -178,15 +179,6 @@ void bcmgenet_mii_setup(struct net_device *dev)
 	phy_print_status(phydev);
 }
 
-void bcmgenet_mii_reset(struct net_device *dev)
-{
-	struct bcmgenet_priv *priv = netdev_priv(dev);
-
-	/* call the PHY driver specific init routine */
-	phy_init_hw(priv->phydev);
-	phy_start_aneg(priv->phydev);
-}
-
 /* 7366a0 EXT GPHY block comes with the CFG_IDDQ_BIAS and CFG_EXT_PWR_DOWN
  * bits set to 1 at reset, they need to be cleared. A reset must also be
  * issued. An initial reset value of 1500 micro seconds was not enough, 2000
@@ -224,7 +216,7 @@ void bcmgenet_phy_power_set(struct net_device *dev, bool enable)
 	udelay(60);
 }
 
-static int bcmgenet_mii_probe(struct net_device *dev)
+int bcmgenet_mii_probe(struct net_device *dev)
 {
 	struct bcmgenet_priv *priv = netdev_priv(dev);
 	struct phy_device *phydev;
@@ -232,11 +224,6 @@ static int bcmgenet_mii_probe(struct net_device *dev)
 	const char *fixed_bus = NULL;
 	int phy_addr = priv->phy_addr;
 	u32 phy_flags;
-
-	if (priv->phydev) {
-		pr_info("PHY already attached\n");
-		return 0;
-	}
 
 	if (priv->old_dt_binding) {
 		/* Bind to fixed-0 for MOCA and switches */
@@ -267,13 +254,8 @@ static int bcmgenet_mii_probe(struct net_device *dev)
 		phydev = phy_connect(dev, phy_id, bcmgenet_mii_setup,
 				priv->phy_interface);
 	} else {
-		if (priv->phy_dn)
-			phydev = of_phy_connect(dev, priv->phy_dn,
+		phydev = of_phy_connect(dev, priv->phy_dn,
 					bcmgenet_mii_setup, phy_flags,
-					priv->phy_interface);
-		else
-			phydev = of_phy_connect_fixed_link(dev,
-					bcmgenet_mii_setup,
 					priv->phy_interface);
 	}
 
@@ -289,10 +271,53 @@ static int bcmgenet_mii_probe(struct net_device *dev)
 	else
 		phydev->advertising = PHY_BASIC_FEATURES;
 
-	pr_info("attached PHY at address %d [%s]\n",
-			phydev->addr, phydev->drv->name);
-
 	priv->phydev = phydev;
+
+	return 0;
+}
+
+/* Workaround for integrated BCM7xxx Gigabit PHYs which have a problem with
+ * their internal MDIO management controller making them fail to successfully
+ * be read from or written to for the first transaction.  We insert a dummy
+ * BMSR read here to make sure that phy_get_device() and get_phy_id() can
+ * correctly read the PHY MII_PHYSID1/2 registers and successfully register a
+ * PHY device for this peripheral.
+ *
+ * Once the PHY driver is registered, we can workaround subsequent reads from
+ * there (e.g: during system-wide power management).
+ *
+ * bus->reset is invoked before mdiobus_scan during mdiobus_register and is
+ * therefore the right location to stick that workaround. Since we do not want
+ * to read from non-existing PHYs, we either use bus->phy_mask or do a manual
+ * Device Tree scan to limit the search area.
+ */
+static int bcmgenet_mii_bus_reset(struct mii_bus *bus)
+{
+	struct net_device *dev = bus->priv;
+	struct bcmgenet_priv *priv = netdev_priv(dev);
+	struct device_node *np = priv->mdio_dn;
+	struct device_node *child = NULL;
+	u32 read_mask = 0;
+	int addr = 0;
+
+	if (!np) {
+		read_mask = 1 << priv->phy_addr;
+	} else {
+		for_each_available_child_of_node(np, child) {
+			addr = of_mdio_parse_addr(&dev->dev, child);
+			if (addr < 0)
+				continue;
+
+			read_mask |= 1 << addr;
+		}
+	}
+
+	for (addr = 0; addr < PHY_MAX_ADDR; addr++) {
+		if (read_mask & 1 << addr) {
+			dev_dbg(&dev->dev, "Workaround for PHY @ %d\n", addr);
+			mdiobus_read(bus, addr, MII_BMSR);
+		}
+	}
 
 	return 0;
 }
@@ -317,6 +342,7 @@ static int bcmgenet_mii_alloc(struct bcmgenet_priv *priv)
 	bus->parent = &priv->pdev->dev;
 	bus->read = bcmgenet_mii_read;
 	bus->write = bcmgenet_mii_write;
+	bus->reset = bcmgenet_mii_bus_reset;
 	if (priv->old_dt_binding)
 		bus->phy_mask = ~(1 << priv->phy_addr);
 	snprintf(bus->id, MII_BUS_ID_SIZE, "%s-%d",
@@ -388,6 +414,7 @@ int bcmgenet_mii_config(struct net_device *dev, bool init)
 
 	switch (priv->phy_interface) {
 	case PHY_INTERFACE_MODE_NA:
+	case PHY_INTERFACE_MODE_MOCA:
 		phy_name = "internal PHY";
 		/* Irrespective of the actually configured PHY speed (100 or
 		 * 1000) GENETv4 only has an internal GPHY so we will just end
@@ -447,9 +474,6 @@ int bcmgenet_mii_config(struct net_device *dev, bool init)
 			phy_name = "external RGMII (no delay)";
 		else
 			phy_name = "external RGMII (TX delay)";
-		reg = bcmgenet_ext_readl(priv, EXT_RGMII_OOB_CTRL);
-		reg |= RGMII_MODE_EN | id_mode_dis;
-		bcmgenet_ext_writel(priv, reg, EXT_RGMII_OOB_CTRL);
 		bcmgenet_sys_writel(priv,
 				PORT_MODE_EXT_GPHY, SYS_PORT_CTRL);
 		priv->phy_supported = PHY_GBIT_FEATURES;
@@ -464,6 +488,15 @@ int bcmgenet_mii_config(struct net_device *dev, bool init)
 		return -EINVAL;
 	}
 
+	/* This is an external PHY, aka xMII, so we need to enable the RGMII
+	 * block for the interface to work
+	 */
+	if (priv->ext_phy) {
+		reg = bcmgenet_ext_readl(priv, EXT_RGMII_OOB_CTRL);
+		reg |= RGMII_MODE_EN | id_mode_dis;
+		bcmgenet_ext_writel(priv, reg, EXT_RGMII_OOB_CTRL);
+	}
+
 	if (init)
 		dev_info(&priv->pdev->dev, "configuring instance for %s\n",
 			 phy_name);
@@ -475,20 +508,18 @@ static int bcmgenet_mii_new_dt_init(struct bcmgenet_priv *priv)
 {
 	struct device_node *dn = priv->pdev->dev.of_node;
 	struct device *kdev = &priv->pdev->dev;
-	struct device_node *mdio_dn;
 	const char *phy_mode_str = NULL;
-	const __be32 *fixed_link;
 	u32 propval;
 	int phy_mode;
-	int ret, sz;
+	int ret;
 
-	mdio_dn = of_get_next_child(dn, NULL);
-	if (!mdio_dn) {
+	priv->mdio_dn = of_get_next_child(dn, NULL);
+	if (!priv->mdio_dn) {
 		dev_err(kdev, "unable to find MDIO bus node\n");
 		return -ENODEV;
 	}
 
-	ret = of_mdiobus_register(priv->mii_bus, mdio_dn);
+	ret = of_mdiobus_register(priv->mii_bus, priv->mdio_dn);
 	if (ret) {
 		dev_err(kdev, "failed to register MDIO bus\n");
 		return ret;
@@ -500,14 +531,13 @@ static int bcmgenet_mii_new_dt_init(struct bcmgenet_priv *priv)
 		if (!of_property_read_u32(priv->phy_dn, "max-speed", &propval))
 			priv->phy_speed = propval;
 	} else {
-		/* Read the link speed from the fixed-link property */
-		fixed_link = of_get_property(dn, "fixed-link", &sz);
-		if (!fixed_link || sz < sizeof(*fixed_link)) {
-			ret = -ENODEV;
-			goto out;
+		if (of_phy_is_fixed_link(dn)) {
+			ret = of_phy_register_fixed_link(dn);
+			if (ret)
+				return ret;
 		}
 
-		priv->phy_speed = be32_to_cpu(fixed_link[2]);
+		priv->phy_dn = of_node_get(dn);
 	}
 
 	/* Get the link mode */
@@ -603,10 +633,6 @@ int bcmgenet_mii_init(struct net_device *dev)
 		goto out;
 
 	ret = bcmgenet_mii_config(dev, true);
-	if (ret)
-		goto out;
-
-	ret = bcmgenet_mii_probe(dev);
 	if (ret)
 		goto out;
 

@@ -1,1 +1,0 @@
-cmd_drivers/net/ethernet/broadcom/genet/built-in.o :=  arm-linux-gnueabihf-ld -EL    -r -o drivers/net/ethernet/broadcom/genet/built-in.o drivers/net/ethernet/broadcom/genet/genet.o 

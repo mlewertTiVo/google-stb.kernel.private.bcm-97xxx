@@ -1,2 +1,2 @@
 # UAPI Header export list
-header-y += cma_driver.h
+header-y += cma_driver.h hdmi_hpd_switch.h

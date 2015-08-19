@@ -1,1 +1,0 @@
-cmd_drivers/net/phy/built-in.o :=  arm-linux-gnueabihf-ld -EL    -r -o drivers/net/phy/built-in.o drivers/net/phy/libphy.o drivers/net/phy/ethsw.o drivers/net/phy/bcm7xxx.o drivers/net/phy/fixed.o drivers/net/phy/mdio-unimac.o 

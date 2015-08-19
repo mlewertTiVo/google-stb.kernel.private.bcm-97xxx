@@ -519,6 +519,21 @@ config SRAM
 	  the genalloc API. It is supposed to be used for small on-chip SRAM
 	  areas found on many SoCs.
 
+config BRCMSTB_HDMI_HPD
+	tristate "Broadcom STB HDMI hotplug switch driver"
+	depends on SWITCH && ARCH_BRCMSTB
+	default n
+	help
+	  This driver uses the Android switch framework to keep track of the
+	  HDMI port status. The switch entry is set when the HDMI port is
+	  connected and unset when the HDMI port is unplugged.
+
+config UID_CPUTIME
+	tristate "Per-UID cpu time statistics"
+	depends on PROFILING
+	help
+	  Per UID based cpu time statistics exported to /proc/uid_cputime
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"

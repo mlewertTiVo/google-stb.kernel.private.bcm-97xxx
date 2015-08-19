@@ -806,6 +806,12 @@ config HID_DEBOUNCE
 	---help---
 	Support for remote control debounce.
 
+config HID_ANDROIDTV_REMOTE
+	tristate "AndroidTV remote control support"
+	depends on USB_HID
+	---help---
+	Support for AndroidTV remote control.
+
 endmenu
 
 endif # HID

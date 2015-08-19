@@ -39,6 +39,10 @@ struct cma {
 #ifdef CONFIG_CMA_ALLOC_PROFILER
 	struct cma_alloc_prof prof;
 #endif
+#ifdef CONFIG_CMA_ALLOC_FREE_CALL_COUNTERS
+	atomic64_t alloc_call_cnt;
+	atomic64_t free_call_cnt;
+#endif
 };
 
 extern unsigned long totalcma_pages;

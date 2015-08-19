@@ -1,1 +1,0 @@
-cmd_drivers/soc/brcmstb/built-in.o :=  arm-linux-gnueabihf-ld -EL    -r -o drivers/soc/brcmstb/built-in.o drivers/soc/brcmstb/pm/built-in.o drivers/soc/brcmstb/common.o drivers/soc/brcmstb/irq0-stub.o drivers/soc/brcmstb/srpd.o drivers/soc/brcmstb/wktmr.o 

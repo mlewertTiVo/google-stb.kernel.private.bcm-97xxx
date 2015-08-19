@@ -28,9 +28,11 @@
 
 struct brcm_usb_instance {
 	void __iomem		*ctrl_regs;
+	void __iomem		*xhci_ec_regs;
 	int			ioc;
 	int			ipp;
 	int			has_xhci;
+	int			device_mode;
 	struct clk		*usb_clk;
 };
 
@@ -131,10 +133,13 @@ static int brcm_usb_instance_probe(struct platform_device *pdev)
 {
 	struct device_node *dn = pdev->dev.of_node;
 	struct resource ctrl_res;
+	struct resource xhci_ec_res;
 	const u32 *prop;
 	struct brcm_usb_instance *priv;
 	struct device_node *node;
+	struct brcm_usb_common_init_params params;
 	int err;
+	const char *device_mode;
 
 	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -145,21 +150,28 @@ static int brcm_usb_instance_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "can't get USB_CTRL base address\n");
 		return -EINVAL;
 	}
-
 	priv->ctrl_regs = devm_request_and_ioremap(&pdev->dev, &ctrl_res);
 	if (!priv->ctrl_regs) {
 		dev_err(&pdev->dev, "can't map register space\n");
 		return -EINVAL;
 	}
-
+	if (!of_address_to_resource(dn, 1, &xhci_ec_res))
+		priv->xhci_ec_regs =
+			devm_request_and_ioremap(&pdev->dev, &xhci_ec_res);
 	prop = of_get_property(dn, "ipp", NULL);
 	if (prop)
 		priv->ipp = be32_to_cpup(prop);
-
 	prop = of_get_property(dn, "ioc", NULL);
 	if (prop)
 		priv->ioc = be32_to_cpup(prop);
-
+	err = of_property_read_string(dn, "device", &device_mode);
+	priv->device_mode = USB_CTLR_DEVICE_OFF;
+	if (err == 0) {
+		if (strcmp(device_mode, "on") == 0)
+			priv->device_mode = USB_CTLR_DEVICE_ON;
+		if (strcmp(device_mode, "dual") == 0)
+			priv->device_mode = USB_CTLR_DEVICE_DUAL;
+	}
 	node = of_find_compatible_node(dn, NULL, "xhci-platform");
 	of_node_put(node);
 	priv->has_xhci = node != NULL;
@@ -171,10 +183,13 @@ static int brcm_usb_instance_probe(struct platform_device *pdev)
 	err = clk_prepare_enable(priv->usb_clk);
 	if (err)
 		return err;
-	brcm_usb_common_ctrl_xhci_soft_reset((uintptr_t)priv->ctrl_regs,
-					!priv->has_xhci);
-	brcm_usb_common_ctrl_init((uintptr_t)priv->ctrl_regs, priv->ioc,
-				priv->ipp, priv->has_xhci);
+	params.ctrl_regs = (uintptr_t)priv->ctrl_regs;
+	params.ioc = priv->ioc;
+	params.ipp = priv->ipp;
+	params.has_xhci = priv->has_xhci;
+	params.xhci_ec_regs = (uintptr_t)priv->xhci_ec_regs;
+	params.device_mode = priv->device_mode;
+	brcm_usb_common_init(&params);
 	return of_platform_populate(dn, NULL, NULL, NULL);
 }
 
@@ -190,10 +205,16 @@ static int brcm_usb_instance_suspend(struct device *dev)
 static int brcm_usb_instance_resume(struct device *dev)
 {
 	struct brcm_usb_instance *priv = dev_get_drvdata(dev);
+	struct brcm_usb_common_init_params params;
+
 	clk_enable(priv->usb_clk);
-	brcm_usb_common_ctrl_xhci_soft_reset((uintptr_t)priv->ctrl_regs, false);
-	brcm_usb_common_ctrl_init((uintptr_t)priv->ctrl_regs, priv->ioc,
-				priv->ipp, priv->has_xhci);
+	params.ctrl_regs = (uintptr_t)priv->ctrl_regs;
+	params.ioc = priv->ioc;
+	params.ipp = priv->ipp;
+	params.has_xhci = priv->has_xhci;
+	params.xhci_ec_regs = (uintptr_t)priv->xhci_ec_regs;
+	params.device_mode = priv->device_mode;
+	brcm_usb_common_init(&params);
 	return 0;
 }
 #endif /* CONFIG_PM_SLEEP */

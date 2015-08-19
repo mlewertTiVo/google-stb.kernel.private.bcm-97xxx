@@ -117,6 +117,7 @@ obj-$(CONFIG_HID_WACOM)		+= hid-wacom.o
 obj-$(CONFIG_HID_WALTOP)	+= hid-waltop.o
 obj-$(CONFIG_HID_WIIMOTE)	+= hid-wiimote.o
 obj-$(CONFIG_HID_SENSOR_HUB)	+= hid-sensor-hub.o
+obj-$(CONFIG_HID_ANDROIDTV_REMOTE)	+= hid-atv-remote.o sbcdec.o
 
 obj-$(CONFIG_HID_DEBOUNCE)  += hid-debounce.o
 
