@@ -2745,7 +2745,7 @@ err_alloc_udc:
 		platform_device_put(the_hcd_pdev[i]);
 	return retval;
 }
-module_init(init);
+late_initcall(init);
 
 static void __exit cleanup(void)
 {
