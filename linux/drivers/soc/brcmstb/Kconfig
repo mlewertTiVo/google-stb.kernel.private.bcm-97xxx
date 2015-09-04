@@ -67,6 +67,17 @@ config BRCMSTB_SRPD
 config BRCMSTB_WKTMR
 	tristate "Support wake-up timer"
 
+config BRCMSTB_WKTMR_SYSTIME_SYNC
+	default n
+	depends on BRCMSTB_WKTMR
+	tristate "Enable wake-up timer to system time synchronization"
+	help
+	  This enables the synchronization of the system time (wall clock) to
+	  the wake-up timer. The system time is set only during boot. This is
+	  useful when the platform does not have a RTC.
+
+	  If you do not have an RTC, say Y here.
+
 # Perform memory hashing before entering S3, using XPT DMA
 config BRCMSTB_XPT_HASH
 	bool
