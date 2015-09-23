@@ -1040,8 +1040,10 @@ static int dummy_udc_resume(struct platform_device *pdev)
 static struct platform_driver dummy_udc_driver = {
 	.probe		= dummy_udc_probe,
 	.remove		= dummy_udc_remove,
+#if 0
 	.suspend	= dummy_udc_suspend,
 	.resume		= dummy_udc_resume,
+#endif
 	.driver		= {
 		.name	= (char *) gadget_name,
 		.owner	= THIS_MODULE,

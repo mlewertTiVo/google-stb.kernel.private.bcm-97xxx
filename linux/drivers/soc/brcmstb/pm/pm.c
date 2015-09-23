@@ -55,7 +55,7 @@
 /* Capped for performance reasons */
 #define MAX_HASH_SIZE			SZ_256M
 /* Max per bank, to keep some fairness */
-#define MAX_HASH_SIZE_BANK		SZ_64M
+#define MAX_HASH_SIZE_BANK		SZ_16M
 
 struct brcmstb_memc {
 	void __iomem *ddr_phy_base;
