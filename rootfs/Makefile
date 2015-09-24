@@ -18,7 +18,8 @@
 #
 
 SAVEVARS	:= PATH SHELL HOME USER MFLAGS MAKEFLAGS MAKELEVEL \
-		MAKEOVERRIDES TERM DISPLAY CCACHE_DIR V VERBOSE
+		MAKEOVERRIDES TERM DISPLAY CCACHE_DIR V VERBOSE \
+		KBUILD_VERBOSE KBUILD_OUTPUT
 unexport $(shell perl -w bin/cleanenv.pl $(SAVEVARS))
 
 # don't pass command line options like SUBDIRS
@@ -26,11 +27,20 @@ MAKEOVERRIDES	:=
 
 ROOTDIR		:= $(shell pwd)
 LINUXDIR	:= linux
+LINUX_OUTPUT	:= linux
 LINUX_CONFIG	:= $(ROOTDIR)/$(LINUXDIR)/.config
+ROOTFS_OUTPUT	:=
+ifneq ($(KBUILD_OUTPUT),)
+LINUX_OUTPUT	:= $(KBUILD_OUTPUT)
+LINUX_CONFIG	:= $(KBUILD_OUTPUT)/.config
+ROOTFS_OUTPUT	:= $(dir $(KBUILD_OUTPUT))rootfs/
+endif
 CONFIG_CONFIG	:= $(ROOTDIR)/config/.config
 ARCH_CONFIG	:= $(ROOTDIR)/config.arch
 ROMFSDIR	:= $(ROOTDIR)/romfs
 ROMFSINST	:= $(ROOTDIR)/bin/romfs-inst.sh
+DOT_TARGET	:= $(ROOTFS_OUTPUT).target
+DOT_ARCH	:= $(ROOTFS_OUTPUT).arch
 
 CFG		:= perl -w bin/config.pl
 CHKPATH		:= perl -w bin/checkpath.pl
@@ -59,8 +69,8 @@ TFTPDIR		:= $(TFTPBOOT)/$$USER
 # relative (remote) TFTP path under $(TFTPBOOT), for use by the TFTP client
 TFTPPATH	:= $(subst $(TFTPBOOT)/,,$(TFTPDIR))
 
-PLAT		= $(shell cat .target)
-ARCH		= $(shell cat .arch)
+PLAT		= $(shell cat $(DOT_TARGET))
+ARCH		= $(shell cat $(DOT_ARCH))
 
 VERSION		:= $(shell cat version)
 DOTVERSION	:= $(patsubst 26%,2.6.%,$(patsubst 3%,3.%,$(VERSION)))
@@ -75,19 +85,20 @@ MAKEOPTS	:= TFTPHOST=$(TFTPHOST) TFTPDIR=$(TFTPDIR) TFTPPATH=$(TFTPPATH)
 # BASIC KERNEL/ROOTFS BUILDS
 #############################################################################
 
-.PHONY: images
-images: .target
+.PHONY: $(ROOTFS_OUTPUT)images
+$(ROOTFS_OUTPUT)images: $(DOT_TARGET)
 	$(MAKE) $(MAKEOPTS) initrd_kernel
 	$(MAKE) $(MAKEOPTS) kernel
-	bin/build_rootfs_images.sh
+	$(if $(ROOTFS_OUTPUT), O=$(ROOTFS_OUTPUT)) \
+		bin/build_rootfs_images.sh
 	@echo ""
-	@echo "Build complete.  Images are in images/"
+	@echo "Build complete.  Images are in $(ROOTFS_OUTPUT)images/"
 	@echo ""
 	@echo "To install under $(TFTPDIR), use \"make install\""
 	@echo ""
 
 .PHONY: rootfs
-rootfs: .target chkpath
+rootfs: $(DOT_TARGET) chkpath
 	# prepare rootfs skeleton
 	if [ -z "$(SUBDIRS)" ]; then \
 		rm -rf $(ROMFSDIR) ; \
@@ -119,7 +130,7 @@ rootfs: .target chkpath
 	fi
 
 .PHONY: initrd_kernel
-initrd_kernel: .target chkpath rootfs
+initrd_kernel: $(DOT_TARGET) chkpath rootfs
 	mkdir -p images
 	# configure kernel for initramfs, then build it
 	+$(CFG) initramfs
@@ -128,27 +139,27 @@ initrd_kernel: .target chkpath rootfs
 		gzip -9 < $(LINUXDIR)/vmlinux > \
 			images/vmlinuz-initrd-$(PLAT) || exit 1; \
 	else \
-		$(MAKE) -C $(LINUXDIR) SUBDIRS= ARCH=arm zImage || exit 1; \
-		cp -f $(LINUXDIR)/arch/arm/boot/zImage \
+		$(MAKE) -C $(LINUX_OUTPUT) SUBDIRS= ARCH=arm zImage || exit 1; \
+		cp -fpv $(LINUX_OUTPUT)/arch/arm/boot/zImage \
 			images/vmlinuz-initrd-$(PLAT) || exit 1; \
 	fi
 
 .PHONY: kernel
-kernel: .target chkpath
-	mkdir -p images
+kernel: $(DOT_TARGET) chkpath
+	mkdir -p $(ROOTFS_OUTPUT)images
 	+$(CFG) noinitramfs
 	if [ "$(ARCH)" = "mips" ]; then \
 		$(MAKE) -C $(LINUXDIR) ARCH=mips vmlinux || exit 1; \
 		gzip -9 < $(LINUXDIR)/vmlinux > \
 			images/vmlinuz-$(PLAT) || exit 1; \
 	else \
-		$(MAKE) -C $(LINUXDIR) SUBDIRS= ARCH=arm zImage || exit 1; \
-		cp -f $(LINUXDIR)/arch/arm/boot/zImage \
-			images/vmlinuz-$(PLAT) || exit 1; \
+		$(MAKE) -C $(LINUX_OUTPUT) SUBDIRS= ARCH=arm zImage || exit 1; \
+		cp -fpv $(LINUX_OUTPUT)/arch/arm/boot/zImage \
+			$(ROOTFS_OUTPUT)images/vmlinuz-$(PLAT) || exit 1; \
 	fi
 
 .PHONY: kernel_sign
-kernel_sign: .target chkpath
+kernel_sign: $(DOT_TARGET) chkpath
 	@if [ -z "$(SIGLIST)" ]; then \
 		echo "!!!No signature list file is specified!!!"; exit 1;\
 	fi; \
@@ -198,7 +209,7 @@ images-%:
 .PHONY: release
 release:
 	# make sure this is a clean view
-	@if [ -e .dirty -o -e images -o -e release ]; then \
+	@if [ -e $(ROOTFS_OUTPUT).dirty -o -e $(ROOTFS_OUTPUT)images -o -e release ]; then \
 		echo "ERROR: \"make release\" must be run on a pristine view"; \
 		exit 1 ; \
 	fi
@@ -228,7 +239,7 @@ release:
 # MISC CHECKS
 #############################################################################
 
-.target:
+$(DOT_TARGET):
 	@echo "Configuration defaults not set.  Try: \"make help\""
 	@exit 1
 
@@ -241,24 +252,24 @@ chkpath:
 #############################################################################
 
 .PHONY: silentoldconfig
-silentoldconfig: .target chkpath
-	$(MAKE) -C $(LINUXDIR) ARCH=$(ARCH) silentoldconfig
-	$(MAKE) -C $(LINUXDIR) ARCH=$(ARCH) prepare scripts
-	$(MAKE) -C lib/uClibc oldconfig
-	$(MAKE) -C user/busybox silentoldconfig
-	$(MAKE) -C config oldconfig
+silentoldconfig: $(DOT_TARGET) chkpath
+	$(MAKE) -C $(LINUX_OUTPUT) ARCH=$(ARCH) silentoldconfig
+	$(MAKE) -C $(LINUX_OUTPUT) ARCH=$(ARCH) prepare scripts
+	$(MAKE) $(if $(ROOTFS_OUTPUT), O=$(ROOTFS_OUTPUT)lib/uClibc) -C lib/uClibc oldconfig
+	$(MAKE) $(if $(ROOTFS_OUTPUT), O=$(ROOTFS_OUTPUT)user/busybox) -C user/busybox silentoldconfig
+	$(MAKE) $(if $(ROOTFS_OUTPUT), O=$(ROOTFS_OUTPUT)config/) -C config oldconfig
 
 .PHONY: oldconfig
-oldconfig: .target chkpath
-	$(MAKE) -C $(LINUXDIR) ARCH=$(ARCH) oldconfig
-	$(MAKE) -C $(LINUXDIR) ARCH=$(ARCH) prepare scripts
+oldconfig: $(DOT_TARGET) chkpath
+	$(MAKE) -C $(LINUX_OUTPUT) ARCH=$(ARCH) oldconfig
+	$(MAKE) -C $(LINUX_OUTPUT) ARCH=$(ARCH) prepare scripts
 	$(MAKE) -C lib/uClibc oldconfig
 	$(MAKE) -C user/busybox oldconfig
 	$(MAKE) -C config oldconfig
 
 .PHONY: defaults-%
 defaults-%: chkpath
-	@touch .dirty
+	@touch $(ROOTFS_OUTPUT).dirty
 	@chmod -R 0755 config/scripts/{Configure,Menuconfig} bin
 	+$(CFG) defaults $*
 	$(MAKE) -j1 silentoldconfig
@@ -274,25 +285,25 @@ defaults-%: chkpath
 	@echo ""
 
 .PHONY: save_defaults
-save_defaults: .target
+save_defaults: $(DOT_TARGET)
 	+$(CFG) save_defaults $(PLAT)
 
 .PHONY: menuconfig-linux menuconfig-vendor menuconfig-uclibc \
 	menuconfig-busybox xconfig-linux
-menuconfig-linux: .target
-	$(MAKE) -C $(LINUXDIR) ARCH=$(ARCH) menuconfig
+menuconfig-linux: $(DOT_TARGET)
+	$(MAKE) -C $(LINUX_OUTPUT) ARCH=$(ARCH) menuconfig
 
-menuconfig-vendor: .target
+menuconfig-vendor: $(DOT_TARGET)
 	$(MAKE) -C config menuconfig
 
-menuconfig-uclibc: .target
+menuconfig-uclibc: $(DOT_TARGET)
 	$(MAKE) -C lib/uClibc menuconfig
 
-menuconfig-busybox: .target
+menuconfig-busybox: $(DOT_TARGET)
 	$(MAKE) -C user/busybox menuconfig
 
-xconfig-linux: .target
-	$(MAKE) -C $(LINUXDIR) ARCH=$(ARCH) xconfig
+xconfig-linux: $(DOT_TARGET)
+	$(MAKE) -C $(LINUX_OUTPUT) ARCH=$(ARCH) xconfig
 
 #############################################################################
 # INSTALL/CLEAN
@@ -308,18 +319,18 @@ install:
 
 .PHONY: clean
 clean:
-	if [ -e .target ]; then \
+	if [ -e $(DOT_TARGET) ]; then \
 		if [ -z "$(SUBDIRS)" ]; then \
 			$(MAKE) -C lib clean ; \
 			$(MAKE) -C user clean ; \
-			$(MAKE) -C $(LINUXDIR) ARCH=$(ARCH) clean ; \
+			$(MAKE) -C $(LINUX_OUTPUT) ARCH=$(ARCH) clean ; \
 		elif [[ "$(SUBDIRS)" != "linux*" ]]; then \
 			$(MAKE) -C lib clean \
 				INITRD_SUBDIR="$(SUBDIRS)" || exit 1 ; \
 			$(MAKE) -C user clean \
 				INITRD_SUBDIR="$(SUBDIRS)" || exit 1 ; \
 		elif [[ "$(SUBDIRS)" = "linux*" ]]; then \
-			$(MAKE) -C $(LINUXDIR) ARCH=$(ARCH) clean ; \
+			$(MAKE) -C $(LINUX_OUTPUT) ARCH=$(ARCH) clean ; \
 		fi ; \
 		if [ -d user/root_sign ]; then \
 			$(MAKE) -C user/root_sign clean; \
@@ -328,14 +339,14 @@ clean:
 
 .PHONY: distclean
 distclean:
-	if [ -e .target ]; then \
+	if [ -e $(DOT_TARGET) ]; then \
 		$(MAKE) -C lib distclean clean ; \
 		$(MAKE) -C user distclean clean ; \
-		$(MAKE) -C $(LINUXDIR) ARCH=$(ARCH) mrproper ; \
+		$(MAKE) -C $(LINUX_OUTPUT) ARCH=$(ARCH) mrproper ; \
 		$(MAKE) -C config clean ; \
 	fi
 	rm -rf romfs tmp
-	rm -f $(CONFIG_CONFIG) $(ARCH_CONFIG) .target .arch
+	rm -f $(CONFIG_CONFIG) $(ARCH_CONFIG) $(DOT_TARGET) $(DOT_ARCH)
 
 #############################################################################
 # INFORMATIONAL TARGETS

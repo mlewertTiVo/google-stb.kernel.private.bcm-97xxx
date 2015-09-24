@@ -519,8 +519,8 @@ function choice () {
 	done
 }
 
-CONFIG=.tmpconfig
-CONFIG_H=.tmpconfig.h
+CONFIG=${O}.tmpconfig
+CONFIG_H=${O}.tmpconfig.h
 trap "rm -f $CONFIG $CONFIG_H ; exit 1" 1 2
 if [ -z "$HELP_FILE" ]
 then
@@ -551,8 +551,8 @@ if [ "$1" != "" ] ; then
 fi
 
 DEFAULTS=arch/$ARCH/defconfig
-if [ -f .config ]; then
-  DEFAULTS=.config
+if [ -f ${O}.config ]; then
+  DEFAULTS=${O}.config
 fi
 
 if [ -f $DEFAULTS ]; then
@@ -560,9 +560,9 @@ if [ -f $DEFAULTS ]; then
   echo "# Using defaults found in" $DEFAULTS
   echo "#"
   . $DEFAULTS
-  sed -e 's/# \(CONFIG_[^ ]*\) is not.*/\1=n/' <$DEFAULTS >.config-is-not.$$
-  . .config-is-not.$$
-  rm .config-is-not.$$
+  sed -e 's/# \(CONFIG_[^ ]*\) is not.*/\1=n/' <$DEFAULTS >${O}.config-is-not.$$
+  . ${O}.config-is-not.$$
+  rm ${O}.config-is-not.$$
 else
   echo "#"
   echo "# No defaults found"
@@ -571,13 +571,13 @@ fi
 
 . $CONFIG_IN
 
-rm -f .config.old
-if [ -f .config ]; then
-	mv .config .config.old
+rm -f ${O}.config.old
+if [ -f ${O}.config ]; then
+	mv ${O}.config ${O}.config.old
 fi
-mv .tmpconfig .config
+mv ${O}.tmpconfig ${O}.config
 if [ -w "`dirname ${AUTOCONF_FILE:=include/linux/autoconf.h}`" ]; then
-	mv .tmpconfig.h ${AUTOCONF_FILE:-include/linux/autoconf.h}
+	mv ${O}.tmpconfig.h ${AUTOCONF_FILE:-include/linux/autoconf.h}
 fi
 
 echo

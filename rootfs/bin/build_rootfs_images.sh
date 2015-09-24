@@ -68,7 +68,7 @@ function make_jffs2_img()
 # MAIN
 #
 
-TARGET=$(cat .target)
+TARGET=$(cat ${O}.target)
 
 rm -rf tmp
 mkdir -p tmp

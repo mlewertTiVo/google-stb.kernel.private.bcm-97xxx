@@ -11,7 +11,7 @@ all:
 clean:
 	$(MAKE) -C scripts clean
 	$(MAKE) -C scripts/lxdialog clean
-	rm -f config.tk autoconf.h .config .config.old
+	rm -f config.tk ${O}autoconf.h ${O}.config ${O}.config.old
 
 ############################################################################
 #
@@ -40,18 +40,18 @@ xconfig: config.tk
 
 oldconfig:
 	@HELP_FILE=Configure.help \
-		AUTOCONF_FILE=autoconf.h \
+		AUTOCONF_FILE=${O}autoconf.h \
 		$(CONFIG_SHELL) $(SCRIPTSDIR)/Configure -d config.in
 
 config:
 	@HELP_FILE=Configure.help \
-		AUTOCONF_FILE=autoconf.h \
+		AUTOCONF_FILE=${O}autoconf.h \
 		$(CONFIG_SHELL) $(SCRIPTSDIR)/Configure config.in
 
 menuconfig:
 	$(MAKE) -C $(SCRIPTSDIR)/lxdialog all
 	@HELP_FILE=config/Configure.help \
-		AUTOCONF_FILE=autoconf.h \
+		AUTOCONF_FILE=${O}autoconf.h \
 		$(CONFIG_SHELL) $(SCRIPTSDIR)/Menuconfig config.in
 
 ############################################################################

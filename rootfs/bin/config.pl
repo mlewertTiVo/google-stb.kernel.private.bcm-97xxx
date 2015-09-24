@@ -33,6 +33,7 @@ use warnings;
 use File::Basename;
 use File::Copy;
 use POSIX;
+use File::Path qw(make_path);
 
 my %linux = ( );
 my %eglibc = ( );
@@ -51,6 +52,9 @@ my $linux_defaults = "";
 my $linux_new_defaults = "";
 
 my $LINUXDIR = "linux";
+
+my $dot_target = ".target";
+my $dot_arch = ".arch";
 
 my $linux_config = "$LINUXDIR/.config";
 my $eglibc_config = "lib/eglibc/build/option-groups.config";
@@ -126,7 +130,7 @@ sub write_cfg_common($$$$)
 	close(IN);
 
 	unlink($out);
-	unless (-e dirname($out) or mkdir(dirname($out))) {
+	unless (-e dirname($out) or make_path(dirname($out))) {
 		die "can't make directory " . dirname($out);
 	}
 	open(OUT, ">${out}") or die "can't open ${out}: $!";
@@ -489,8 +493,8 @@ sub cmd_defaults($)
 
 	# clean up the build system if switching targets
 	# "quick" mode (skip distclean) is for testing only
-	if(-e ".target" && $cmd ne "quickdefaults") {
-		open(F, "<.target") or die "can't read .target";
+	if(-e "$dot_target" && $cmd ne "quickdefaults") {
+		open(F, "<$dot_target") or die "can't read $dot_target";
 		my $oldtgt = <F>;
 		close(F);
 
@@ -505,7 +509,7 @@ sub cmd_defaults($)
 			sleep(5);
 			system("make distclean");
 		}
-		unlink(".target");
+		unlink("$dot_target");
 	}
 
 	unlink($linux_config);
@@ -903,11 +907,11 @@ sub cmd_defaults($)
 	}
 	chdir($cwd) or die;
 
-	open(F, ">.target") or die "can't write .target: $!";
+	open(F, ">$dot_target") or die "can't write $dot_target: $!";
 	print F "$tgt\n";
 	close(F);
 
-	open(F, ">.arch") or die "can't write .arch: $!";
+	open(F, ">$dot_arch") or die "can't write $dot_arch: $!";
 	print F qq($arch_config_options{"ARCH"}\n);
 	close(F);
 
@@ -1069,5 +1073,18 @@ my %cmd_table = (
 my $cmd = shift @ARGV;
 if(! defined($cmd)) {
 	die "usage: config.pl <cmd>\n";
+}
+my $kbuild_output = $ENV{'KBUILD_OUTPUT'};
+if (defined $kbuild_output) {
+	my $r = dirname($kbuild_output)."/rootfs";
+	print "config.pl: using output directories: '$kbuild_output' and '$r'\n";
+	$eglibc_config = "$r/$eglibc_config";
+	$uclibc_config = "$r/$uclibc_config";
+	$busybox_config = "$r/$busybox_config";
+	$vendor_config = "$r/$vendor_config";
+	$arch_config = "$r/$arch_config";
+	$dot_target = "$r/$dot_target";
+	$dot_arch = "$r/$dot_arch";
+	$linux_config = "$kbuild_output/.config";
 }
 ($cmd_table{$cmd} || \&cmd_badcmd)->($cmd);
