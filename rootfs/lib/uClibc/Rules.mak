@@ -62,7 +62,7 @@ STRIP_FLAGS ?= -x -R .note -R .comment
 ## UNIFDEF := $(top_builddir)extra/scripts/unifdef
 
 # Select the compiler needed to build binaries for your development system
-HOSTCC     = gcc
+HOSTCC     = $(LINUX_HOST_TOOLCHAIN)gcc
 BUILD_CFLAGS = -Os -Wall
 
 #---------------------------------------------------------

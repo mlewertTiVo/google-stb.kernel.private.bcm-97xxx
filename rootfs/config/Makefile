@@ -1,6 +1,6 @@
-SCRIPTSDIR	:= scripts
-HOSTCC		:= gcc
-VERSIONPKG	:= $(shell cat $(ROOTDIR)/version)
+SCRIPTSDIR	 := scripts
+HOSTCC		 := $(LINUX_HOST_TOOLCHAIN)gcc
+VERSIONPKG	 := $(shell cat $(ROOTDIR)/version)
 
 export SCRIPTSDIR HOSTCC VERSIONPKG
 
