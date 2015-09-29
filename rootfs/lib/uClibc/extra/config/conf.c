@@ -35,7 +35,8 @@ static int indent = 1;
 static int valid_stdin = 1;
 static int sync_kconfig;
 static int conf_cnt;
-static char line[128];
+static char line[1024];
+static int line_size = 1024;
 static struct menu *rootEntry;
 
 static char nohelp_text[] = N_("Sorry, no help available for this option yet.\n");
@@ -102,7 +103,7 @@ static int conf_askvalue(struct symbol *sym, const char *def)
 		check_stdin();
 	case ask_all:
 		fflush(stdout);
-		fgets(line, 128, stdin);
+		fgets(line, line_size, stdin);
 		return 1;
 	default:
 		break;
@@ -304,7 +305,7 @@ static int conf_choice(struct menu *menu)
 			check_stdin();
 		case ask_all:
 			fflush(stdout);
-			fgets(line, 128, stdin);
+			fgets(line, line_size, stdin);
 			strip(line);
 			if (line[0] == '?') {
 				printf("\n%s\n", get_help(menu));

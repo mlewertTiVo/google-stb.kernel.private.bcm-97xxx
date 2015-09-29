@@ -394,7 +394,7 @@ int conf_write(const char *name)
 	struct symbol *sym;
 	struct menu *menu;
 	const char *basename;
-	char dirname[128], tmpname[128], newname[128];
+	char dirname[1024], tmpname[1024], newname[1024];
 	int type, l;
 	const char *str;
 	time_t now;
@@ -556,7 +556,7 @@ int conf_write(const char *name)
 
 int conf_split_config(void)
 {
-	char *name, path[128], opwd[512];
+	char *name, path[1024], opwd[1024];
 	char *s, *d, c;
 	struct symbol *sym;
 	struct stat sb;
