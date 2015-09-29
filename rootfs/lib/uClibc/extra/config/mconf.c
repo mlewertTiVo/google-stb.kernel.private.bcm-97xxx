@@ -356,10 +356,10 @@ static struct gstr get_relations_str(struct symbol **sym_arr)
 	return res;
 }
 
-static char filename[PATH_MAX+1];
+static char filename[PATH_MAX+1024];
 static void set_config_filename(const char *config_filename)
 {
-	static char menu_backtitle[PATH_MAX+128];
+	static char menu_backtitle[PATH_MAX+1024];
 	int size;
 	struct symbol *sym;
 
