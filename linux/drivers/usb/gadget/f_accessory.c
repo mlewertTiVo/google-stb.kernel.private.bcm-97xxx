@@ -515,6 +515,7 @@ static int create_bulk_endpoints(struct acc_dev *dev,
 	ep->driver_data = dev;		/* claim the endpoint */
 	dev->ep_out = ep;
 
+#if 0
 	ep = usb_ep_autoconfig(cdev->gadget, out_desc);
 	if (!ep) {
 		DBG(cdev, "usb_ep_autoconfig for ep_out failed\n");
@@ -523,6 +524,7 @@ static int create_bulk_endpoints(struct acc_dev *dev,
 	DBG(cdev, "usb_ep_autoconfig for ep_out got %s\n", ep->name);
 	ep->driver_data = dev;		/* claim the endpoint */
 	dev->ep_out = ep;
+#endif
 
 	/* now allocate requests for our endpoints */
 	for (i = 0; i < TX_REQ_MAX; i++) {
@@ -662,10 +664,17 @@ static ssize_t acc_write(struct file *fp, const char __user *buf,
 			break;
 		}
 
-		if (count > BULK_BUFFER_SIZE)
+		if (count > BULK_BUFFER_SIZE) {
 			xfer = BULK_BUFFER_SIZE;
-		else
+			/* ZLP, They will be more TX requests so not yet. */
+			req->zero = 0;
+		} else {
 			xfer = count;
+			/* If the data length is a multple of the
+			 * maxpacket size then send a zero length packet(ZLP).
+			*/
+			req->zero = ((xfer % dev->ep_in->maxpacket) == 0);
+		}
 		if (copy_from_user(req->buf, buf, xfer)) {
 			r = -EFAULT;
 			break;
@@ -943,6 +952,10 @@ kill_all_hid_devices(struct acc_dev *dev)
 	struct acc_hid_dev *hid;
 	struct list_head *entry, *temp;
 	unsigned long flags;
+
+	/* do nothing if usb accessory device doesn't exist */
+	if (!dev)
+		return;
 
 	spin_lock_irqsave(&dev->lock, flags);
 	list_for_each_safe(entry, temp, &dev->hid_list) {

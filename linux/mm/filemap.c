@@ -804,7 +804,8 @@ EXPORT_SYMBOL(page_cache_prev_hole);
  *
  * Otherwise, %NULL is returned.
  */
-struct page *find_get_entry(struct address_space *mapping, pgoff_t offset)
+struct page *find_get_entry(struct address_space *mapping, pgoff_t offset,
+			    int fgp_flags)
 {
 	void **pagep;
 	struct page *page;
@@ -841,6 +842,8 @@ repeat:
 		}
 	}
 out:
+	if (page && (fgp_flags & FGP_ACCESSED))
+		mark_page_accessed(page);
 	rcu_read_unlock();
 
 	return page;
@@ -857,9 +860,10 @@ EXPORT_SYMBOL(find_get_entry);
  *
  * Otherwise, %NULL is returned.
  */
-struct page *find_get_page(struct address_space *mapping, pgoff_t offset)
+struct page *find_get_page_flags(struct address_space *mapping, pgoff_t offset,
+				 int fgp_flags)
 {
-	struct page *page = find_get_entry(mapping, offset);
+	struct page *page = find_get_entry(mapping, offset, fgp_flags);
 
 	if (radix_tree_exceptional_entry(page))
 		page = NULL;
@@ -888,7 +892,7 @@ struct page *find_lock_entry(struct address_space *mapping, pgoff_t offset)
 	struct page *page;
 
 repeat:
-	page = find_get_entry(mapping, offset);
+	page = find_get_entry(mapping, offset, 0);
 	if (page && !radix_tree_exception(page)) {
 		lock_page(page);
 		/* Has the page been truncated? */

@@ -429,6 +429,15 @@ static inline wait_queue_head_t *atomic_t_waitqueue(atomic_t *p)
 	return bit_waitqueue(p, 0);
 }
 
+__sched int bit_wait_io(void *word)
+{
+	if (signal_pending_state(current->state, current))
+		return 1;
+	io_schedule();
+	return 0;
+}
+EXPORT_SYMBOL(bit_wait_io);
+
 static int wake_atomic_t_function(wait_queue_t *wait, unsigned mode, int sync,
 				  void *arg)
 {

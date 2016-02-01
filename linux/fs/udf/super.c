@@ -651,6 +651,7 @@ static int udf_remount_fs(struct super_block *sb, int *flags, char *options)
 		if (write_rev > UDF_MAX_WRITE_VERSION && !(*flags & MS_RDONLY))
 			return -EACCES;
 	}
+	sync_filesystem(sb);
 
 	uopt.flags = sbi->s_flags;
 	uopt.uid   = sbi->s_uid;

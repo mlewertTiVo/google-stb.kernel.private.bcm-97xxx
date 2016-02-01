@@ -535,6 +535,7 @@ static int bdc_resume(struct platform_device *pdev)
 static const struct of_device_id bdc_of_match[] = {
 	{ .compatible = "brcm,bdc-udc-v0.16" },
 	{ .compatible = "brcm,bdc-udc" },
+	{ .compatible = "brcm,bdc-udc-v2" },
 	{ /* sentinel */ }
 };
 

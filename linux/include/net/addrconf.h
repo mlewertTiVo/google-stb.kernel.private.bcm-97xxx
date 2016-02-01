@@ -210,6 +210,7 @@ bool ipv6_chk_acast_addr(struct net *net, struct net_device *dev,
 			 const struct in6_addr *addr);
 bool ipv6_chk_acast_addr_src(struct net *net, struct net_device *dev,
 			     const struct in6_addr *addr);
+void ipv6_ac_destroy_dev(struct inet6_dev *idev);
 
 /* Device notifier */
 int register_inet6addr_notifier(struct notifier_block *nb);

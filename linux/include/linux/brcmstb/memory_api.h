@@ -78,8 +78,10 @@ int __init brcmstb_memory_get_default_reserve(int bank_nr,
 
 #ifdef CONFIG_BRCMSTB_MEMORY_API
 void __init brcmstb_memory_reserve(void);
+void __init pmem_reserve(void);
 #else
 static inline void brcmstb_memory_reserve(void) {};
+static inline void pmem_reserve(void) {};
 #endif
 
 /* The following relate to the default reservation scheme */

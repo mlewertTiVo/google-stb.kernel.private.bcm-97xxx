@@ -66,7 +66,35 @@ static struct {
 	int count;
 } reserved_init;
 
+static phys_addr_t pmem_addr;
+static phys_addr_t pmem_size;
+
 /* -------------------- Functions -------------------- */
+
+/*
+ * Parses command line for pmem= options
+ */
+static int __init pmem_setup(char *str)
+{
+	phys_addr_t addr = 0, size;
+	char *orig_str = str;
+
+	size = memparse(str, &str);
+	if (*str == '@')
+		addr = memparse(str + 1, &str);
+
+	if ((addr & ~PAGE_MASK) || (size & ~PAGE_MASK)) {
+		pr_warn("ignoring invalid range '%s' (is it missing an 'M' suffix?)\n",
+				orig_str);
+		return 0;
+	}
+
+	pmem_addr = addr;
+	pmem_size = size;
+
+	return 0;
+}
+early_param("pmem", pmem_setup);
 
 /*
  * If the DT nodes are handy, determine which MEMC holds the specified
@@ -273,7 +301,7 @@ int __init brcmstb_memory_get_default_reserve(int bank_nr,
 		PAGE_SIZE << max(MAX_ORDER - 1, pageblock_order);
 	struct membank *bank = &meminfo.bank[bank_nr];
 	phys_addr_t start = bank->start;
-	phys_addr_t size = 0;
+	phys_addr_t size = 0, adj = 0;
 	phys_addr_t newstart, newsize;
 	int i;
 
@@ -291,8 +319,15 @@ int __init brcmstb_memory_get_default_reserve(int bank_nr,
 				return -EINVAL;
 			}
 
+			if (brcmstb_default_reserve == BRCMSTB_RESERVE_BMEM) {
+				if (bank->size <= SZ_128M)
+					return -EINVAL;
+
+				adj = SZ_128M;
+			}
+
 			/* kernel reserves X percent, bmem gets the rest */
-			tmp = ((u64)bank->size) * (100 - DEFAULT_LOWMEM_PCT);
+			tmp = ((u64)(bank->size - adj)) * (100 - DEFAULT_LOWMEM_PCT);
 			rem = do_div(tmp, 100);
 			size = tmp + rem;
 			start = bank->start + bank->size - size;
@@ -403,6 +438,26 @@ void __init brcmstb_memory_reserve(void)
 #else
 	pr_err("No memblock, cannot get reserved range\n");
 #endif
+}
+
+/* Reserve memory for pstore/ramoops buffer */
+void __init pmem_reserve(void)
+{
+	int ret;
+
+	if (pmem_size == 0) {
+		pr_info("pmem: disabling reserved memory\n");
+		return;
+	}
+
+	ret = memblock_reserve(pmem_addr, pmem_size);
+	if (ret) {
+		pr_err("pmem: memblock_reserve(%pa, %pa) failed: %d\n",
+			&pmem_addr, &pmem_size, ret);
+	} else {
+		pr_info("pmem: Reserved %lu MiB at %pa\n",
+			(unsigned long) pmem_size / SZ_1M, &pmem_addr);
+	}
 }
 
 /*

@@ -58,6 +58,11 @@ config BRCMSTB_PM
 	depends on PM
 	depends on ARM && ARCH_BRCMSTB
 
+config BRCMSTB_MAP_MEM_TO_S2
+	bool "Map mem suspend state to S2"
+	depends on BRCMSTB_PM
+	default n
+
 config BRCMSTB_SRPD
 	tristate "Support enabling DDR self-refresh modes"
 	help
@@ -81,5 +86,11 @@ config BRCMSTB_WKTMR_SYSTIME_SYNC
 # Perform memory hashing before entering S3, using XPT DMA
 config BRCMSTB_XPT_HASH
 	bool
+
+config BRCMSTB_NEXUS_API
+	tristate "Support for Nexus APIs"
+	help
+	   Provides APIs for Nexus kernel-mode driver to facilitate
+	   sharing of resources: IRQs, GPIOs, Pinmuxing etc.
 
 endmenu

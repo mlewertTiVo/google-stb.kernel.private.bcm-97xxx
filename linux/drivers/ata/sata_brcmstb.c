@@ -147,10 +147,12 @@ static int pdev_lookup(struct device *dev,
 
 static int brcm_sata3_init_config(void __iomem *ahci_regs,
 				  struct platform_device *ahci_pdev,
-				  struct sata_brcm_pdata *brcm_pdata)
+				  struct sata_brcm_pdata *brcm_pdata,
+				  int ports)
 {
-	int status = 0;
+	int i, status = 0;
 	void __iomem *top_regs = NULL;
+	u32 host_caps, port_ctrl;
 
 	top_regs = ioremap(brcm_pdata->top_ctrl_base_addr,
 			   SATA_TOP_CTRL_REG_LENGTH);
@@ -159,10 +161,23 @@ static int brcm_sata3_init_config(void __iomem *ahci_regs,
 		goto done;
 	}
 
+	/* Enable support for ALPM */
+	writel(SATA_TOP_CTRL_BUS_CTRL_OVERRIDE_HWINIT,
+		top_regs + SATA_TOP_CTRL_BUS_CTRL);
+	host_caps = readl(ahci_regs + HOST_CAP);
+	writel(host_caps | HOST_CAP_ALPM, ahci_regs + HOST_CAP);
+
 	/* Configure endianness */
 	writel((DATA_ENDIAN << 4) | (DATA_ENDIAN << 2) | (MMIO_ENDIAN << 0),
 		top_regs + SATA_TOP_CTRL_BUS_CTRL);
 
+	/*
+	 * Adjust timeout to allow PLL sufficient time to lock while waking
+	 * up from slumber mode.
+	 */
+	for (i = 0, port_ctrl = SATA_FIRST_PORT_CTRL; i < ports;
+	     i++, port_ctrl += SATA_NEXT_PORT_CTRL_OFFSET)
+		writel(0xff1003fc, ahci_regs + SATA_PORT_PCTRL6(port_ctrl));
 done:
 	if (top_regs)
 		iounmap(top_regs);
@@ -214,7 +229,8 @@ static int brcm_sata3_cfg(struct device *dev, void __iomem *addr, int init)
 	ports = fls(readl(addr + HOST_PORTS_IMPL));
 
 	if (init) {
-		status = brcm_sata3_init_config(addr, ahci_pdev, brcm_pdata);
+		status = brcm_sata3_init_config(addr, ahci_pdev,
+						brcm_pdata, ports);
 		if (status)
 			goto done;
 	}
@@ -283,8 +299,6 @@ static int brcm_ahci_parse_dt_node(struct platform_device *pdev)
 	int status = 0;
 	struct sata_brcm_pdata *brcm_pdata = pdev->dev.platform_data;
 	struct device_node *of_node = pdev->dev.of_node;
-	struct property *prop;
-	char *propname;
 
 	/* MANDATORY */
 	status = brcm_ahci_parse_dt_prop_u32(of_node, "phy-generation",
@@ -309,22 +323,6 @@ static int brcm_ahci_parse_dt_node(struct platform_device *pdev)
 					     &brcm_pdata->phy_enable_ssc_mask);
 	if (status)
 		brcm_pdata->phy_enable_ssc_mask = 0;
-
-	/* OPTIONAL */
-	propname = "phy-force-spd";
-	prop = of_find_property(of_node, propname, NULL);
-	if (prop) {
-		if ((prop->length % 8) == 0) {
-			int num_entries = prop->length / sizeof(u32) / 2;
-			const __be32 *ptr = prop->value;
-			while (num_entries-- != 0) {
-				const u32 port = be32_to_cpup(ptr++);
-				const u32 val = be32_to_cpup(ptr++);
-				brcm_sata3_phy_spd_set(brcm_pdata, port, val);
-			}
-		} else
-			pr_err("%s property is malformed!\n", propname);
-	}
 
 err:
 	return status;
@@ -353,7 +351,7 @@ static int brcm_ahci_probe(struct platform_device *pdev)
 	struct ahci_platform_data ahci_pdata;
 	static u64 brcm_ahci_dmamask = DMA_BIT_MASK(64);
 
-	ahci_pdev = platform_device_alloc("strict-ahci", child_pdevs_count);
+	ahci_pdev = platform_device_alloc("brcmstb-ahci", child_pdevs_count);
 	if (ahci_pdev == NULL) {
 		pr_err("Cannot allocate AHCI platform device!\n");
 		status = -ENOMEM;

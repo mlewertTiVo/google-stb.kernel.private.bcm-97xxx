@@ -117,16 +117,21 @@ enum {
 
 struct brcmstb_thermal_priv {
 	void __iomem *tmon_base;
+	struct device *dev;
 	struct thermal_zone_device *thermal;
 
-	/* Did this driver register as a sensor or as a zone? */
+	/*
+	 * When .thermal is non-zero this member indicates whether
+	 * this driver registered as a sensor (AVS_TMON_OF_SENSOR_DRIVER)
+	 * or as a zone (AVS_TMON_ZONE_DRIVER)
+	 */
 	int regtype;
 };
 
 /* Convert a HW code to a temperature reading (millidegree celsius) */
 static inline int avs_tmon_code_to_temp(u32 code)
 {
-	return (4100400U - code * 4870U) / 10U;
+	return (410040 - (int)((code & 0x3FF) * 487));
 }
 
 /*
@@ -135,29 +140,41 @@ static inline int avs_tmon_code_to_temp(u32 code)
  * @temp: temperature to convert
  * @low: if true, round toward the low side
  */
-static inline u32 avs_tmon_temp_to_code(unsigned long temp, bool low)
+static inline u32 avs_tmon_temp_to_code(int temp, bool low)
 {
+	if (temp < -88161)
+		return 0x3FF;	/* Maximum code value */
+
+	if (temp >= 410040)
+		return 0;	/* Minimum code value */
+
 	if (low)
-		return DIV_ROUND_UP(4100400U - temp * 10U, 4870U);
+		return (u32)(DIV_ROUND_UP(410040 - temp, 487));
 	else
-		return (4100400U - temp * 10U) / 4870U;
+		return (u32)((410040 - temp) / 487);
 }
 
 static int brcmstb_get_temp(void *data, long *temp)
 {
 	struct brcmstb_thermal_priv *priv = data;
 	u32 val;
+	long t;
 
 	val = __raw_readl(priv->tmon_base + AVS_TMON_STATUS);
 
 	if (!(val & AVS_TMON_STATUS_valid_msk)) {
-		dev_err(&priv->thermal->device, "reading not valid\n");
+		dev_err(priv->dev, "reading not valid\n");
+
 		return -EIO;
 	}
 
 	val = (val & AVS_TMON_STATUS_data_msk) >> AVS_TMON_STATUS_data_shift;
 
-	*temp = avs_tmon_code_to_temp(val);
+	t = avs_tmon_code_to_temp(val);
+	if (t < 0)
+		*temp = 0;
+	else
+		*temp = t;
 
 	return 0;
 }
@@ -201,12 +218,12 @@ static int avs_tmon_get_trip_temp(struct brcmstb_thermal_priv *priv,
 
 static void avs_tmon_set_trip_temp(struct brcmstb_thermal_priv *priv,
 				   enum avs_tmon_trip_type type,
-				   unsigned long temp)
+				   int temp)
 {
 	struct avs_tmon_trip *trip = &avs_tmon_trips[type];
 	u32 val, orig;
 
-	pr_debug("set temp %d to %lu\n", type, temp);
+	pr_debug("set temp %d to %d\n", type, temp);
 
 	/* round toward low temp for the low interrupt */
 	val = avs_tmon_temp_to_code(temp, type == TMON_TRIP_TYPE_LOW);
@@ -232,13 +249,13 @@ static int avs_tmon_get_intr_temp(struct brcmstb_thermal_priv *priv)
 static irqreturn_t brcmstb_tmon_irq_thread(int irq, void *data)
 {
 	struct brcmstb_thermal_priv *priv = data;
-	unsigned long low, high, intr;
+	int low, high, intr;
 
 	low = avs_tmon_get_trip_temp(priv, TMON_TRIP_TYPE_LOW);
 	high = avs_tmon_get_trip_temp(priv, TMON_TRIP_TYPE_HIGH);
 	intr = avs_tmon_get_intr_temp(priv);
 
-	dev_dbg(&priv->thermal->device, "low/intr/high: %lu/%lu/%lu\n",
+	dev_dbg(priv->dev, "low/intr/high: %d/%d/%d\n",
 			low, intr, high);
 
 	/* Disable high-temp until next threshold shift */
@@ -264,14 +281,20 @@ static int brcmstb_set_trips(void *data, unsigned long low, unsigned long high)
 	pr_debug("set trips %lu <--> %lu\n", low, high);
 
 	if (low) {
-		avs_tmon_set_trip_temp(priv, TMON_TRIP_TYPE_LOW, low);
+		if (low > INT_MAX) {
+			low = INT_MAX;
+		}
+		avs_tmon_set_trip_temp(priv, TMON_TRIP_TYPE_LOW, (int)low);
 		avs_tmon_trip_enable(priv, TMON_TRIP_TYPE_LOW, 1);
 	} else {
 		avs_tmon_trip_enable(priv, TMON_TRIP_TYPE_LOW, 0);
 	}
 
 	if (high < ULONG_MAX) {
-		avs_tmon_set_trip_temp(priv, TMON_TRIP_TYPE_HIGH, high);
+		if (high > INT_MAX) {
+			high = INT_MAX;
+		}
+		avs_tmon_set_trip_temp(priv, TMON_TRIP_TYPE_HIGH, (int)high);
 		avs_tmon_trip_enable(priv, TMON_TRIP_TYPE_HIGH, 1);
 	} else {
 		avs_tmon_trip_enable(priv, TMON_TRIP_TYPE_HIGH, 0);
@@ -304,14 +327,17 @@ MODULE_DEVICE_TABLE(of, brcmstb_thermal_id_table);
 static int brcmstb_thermal_zone_probe(struct platform_device *pdev,
 				      struct brcmstb_thermal_priv *priv)
 {
-	priv->thermal = thermal_zone_device_register("avs_tmon", 0, 0, priv,
-						     &zone_ops, NULL, 0, 0);
-	if (IS_ERR(priv->thermal)) {
+	struct thermal_zone_device *thermal;
+
+	thermal = thermal_zone_device_register("avs_tmon", 0, 0, priv,
+					       &zone_ops, NULL, 0, 0);
+	if (IS_ERR(thermal)) {
 		dev_err(&pdev->dev, "failed to register zone device\n");
-		return PTR_ERR(priv->thermal);
+		return PTR_ERR(thermal);
 	}
 
 	priv->regtype = AVS_TMON_ZONE_DRIVER;
+	priv->thermal = thermal;
 	dev_info(&pdev->dev, "registered AVS TMON zone driver\n");
 
 	return 0;
@@ -333,6 +359,7 @@ static int brcmstb_thermal_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->tmon_base))
 		return PTR_ERR(priv->tmon_base);
 
+	priv->dev = &pdev->dev;
 	platform_set_drvdata(pdev, priv);
 
 	thermal = thermal_zone_of_sensor_register(&pdev->dev, 0, priv, &of_ops);
@@ -341,6 +368,8 @@ static int brcmstb_thermal_probe(struct platform_device *pdev)
 		 * Fall back to registering our own zone, for legacy purposes
 		 */
 		return brcmstb_thermal_zone_probe(pdev, priv);
+
+	priv->regtype = AVS_TMON_OF_SENSOR_DRIVER;
 	priv->thermal = thermal;
 
 	irq = platform_get_irq(pdev, 0);
@@ -357,13 +386,12 @@ static int brcmstb_thermal_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	priv->regtype = AVS_TMON_OF_SENSOR_DRIVER;
 	dev_info(&pdev->dev, "registered AVS TMON of-sensor driver\n");
 
 	return 0;
 
 err:
-	thermal_zone_device_unregister(thermal);
+	thermal_zone_of_sensor_unregister(&pdev->dev, priv->thermal);
 	return ret;
 }
 
@@ -372,10 +400,13 @@ static int brcmstb_thermal_exit(struct platform_device *pdev)
 	struct brcmstb_thermal_priv *priv = platform_get_drvdata(pdev);
 	struct thermal_zone_device *thermal = priv->thermal;
 
-	if (priv->regtype == AVS_TMON_ZONE_DRIVER)
-		thermal_zone_device_unregister(thermal);
-	else
-		thermal_zone_of_sensor_unregister(&pdev->dev, priv->thermal);
+	if (thermal) {
+		if (priv->regtype == AVS_TMON_ZONE_DRIVER)
+			thermal_zone_device_unregister(thermal);
+		else
+			thermal_zone_of_sensor_unregister(&pdev->dev,
+							  priv->thermal);
+	}
 
 	return 0;
 }

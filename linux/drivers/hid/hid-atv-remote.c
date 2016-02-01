@@ -966,6 +966,10 @@ static void snd_atvr_timer_stop(struct snd_pcm_substream *substream)
 	/* Tell timer function not to reschedule itself if it runs. */
 	atvr_snd->timer_enabled = false;
 	smp_wmb();
+
+	/* Unlock spinlock to avoid deadlock */
+	snd_pcm_stream_unlock_irq(substream);
+
 	if (!in_interrupt()) {
 		/* del_timer_sync will hang if called in the timer callback. */
 		ret = del_timer_sync(&atvr_snd->decoding_timer);
@@ -982,6 +986,9 @@ static void snd_atvr_timer_stop(struct snd_pcm_substream *substream)
 	 * The del_timer functions just cancel pending timers.
 	 * There are no resources that need to be cleaned up.
 	 */
+
+	/* Relock spinlock */
+	snd_pcm_stream_lock_irq(substream);
 }
 
 /* ===================================================================== */
@@ -1060,14 +1067,18 @@ static int snd_atvr_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 		snd_atvr_log("%s stopping audio, peak = %d, # packets = %d\n",
 			__func__, atvr_snd->peak_level, packet_counter);
 
-		/* Turn off the MIC */
+		s_substream_for_btle = NULL;
+		smp_wmb(); /* so other thread will see s_substream_for_btle */
+		snd_atvr_timer_stop(substream);
+
+		/*
+		 * Turn off the MIC. Timer must be stopped first to avoid
+		 * a deadlock scenario.
+		 */
 		if (snd_atvr_mic_control(atvr_snd, 0)) {
 			snd_atvr_log("%s Unable to turn off MIC\n", __func__);
 		}
 
-		s_substream_for_btle = NULL;
-		smp_wmb(); /* so other thread will see s_substream_for_btle */
-		snd_atvr_timer_stop(substream);
 		return 0;
 	}
 	return -EINVAL;

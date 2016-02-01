@@ -207,7 +207,8 @@ void acct_update_power(struct task_struct *task, cputime_t cputime) {
 		return;
 
 	curr = powerstats->curr[stats->last_index];
-	task->cpu_power += curr * cputime_to_usecs(cputime);
+	if (task->cpu_power != ULLONG_MAX)
+		task->cpu_power += curr * cputime_to_usecs(cputime);
 }
 EXPORT_SYMBOL_GPL(acct_update_power);
 
@@ -320,19 +321,18 @@ static void cpufreq_stats_free_table(unsigned int cpu)
 
 static void cpufreq_allstats_free(void)
 {
-	int i;
+	int cpu;
 	struct all_cpufreq_stats *all_stat;
 
-	sysfs_remove_file(cpufreq_global_kobject,
-						&_attr_all_time_in_state.attr);
+	cpufreq_sysfs_remove_file(&_attr_all_time_in_state.attr);
 
-	for (i = 0; i < total_cpus; i++) {
-		all_stat = per_cpu(all_cpufreq_stats, i);
+	for_each_possible_cpu(cpu) {
+		all_stat = per_cpu(all_cpufreq_stats, cpu);
 		if (!all_stat)
 			continue;
 		kfree(all_stat->time_in_state);
 		kfree(all_stat);
-		per_cpu(all_cpufreq_stats, i) = NULL;
+		per_cpu(all_cpufreq_stats, cpu) = NULL;
 	}
 	if (all_freq_table) {
 		kfree(all_freq_table->freq_table);
@@ -346,7 +346,7 @@ static void cpufreq_powerstats_free(void)
 	int cpu;
 	struct cpufreq_power_stats *powerstats;
 
-	sysfs_remove_file(cpufreq_global_kobject, &_attr_current_in_state.attr);
+	cpufreq_sysfs_remove_file(&_attr_current_in_state.attr);
 
 	for_each_possible_cpu(cpu) {
 		powerstats = per_cpu(cpufreq_power_stats, cpu);
@@ -520,7 +520,7 @@ static void add_all_freq_table(unsigned int freq)
 	unsigned int size;
 	size = sizeof(unsigned int) * (all_freq_table->table_size + 1);
 	all_freq_table->freq_table = krealloc(all_freq_table->freq_table,
-			size, GFP_KERNEL);
+			size, GFP_ATOMIC);
 	if (IS_ERR(all_freq_table->freq_table)) {
 		pr_warn("Could not reallocate memory for freq_table\n");
 		all_freq_table->freq_table = NULL;

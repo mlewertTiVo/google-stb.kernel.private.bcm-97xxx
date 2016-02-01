@@ -640,7 +640,9 @@ enum inode_i_mutex_lock_class
 	I_MUTEX_PARENT,
 	I_MUTEX_CHILD,
 	I_MUTEX_XATTR,
-	I_MUTEX_NONDIR2
+	I_MUTEX_QUOTA,
+	I_MUTEX_NONDIR2,
+	I_MUTEX_PARENT2,
 };
 
 void lock_two_nondirectories(struct inode *, struct inode*);
@@ -2559,6 +2561,9 @@ static inline ssize_t blockdev_direct_IO(int rw, struct kiocb *iocb,
 
 void inode_dio_wait(struct inode *inode);
 void inode_dio_done(struct inode *inode);
+
+extern void inode_set_flags(struct inode *inode, unsigned int flags,
+			    unsigned int mask);
 
 extern const struct file_operations generic_ro_fops;
 

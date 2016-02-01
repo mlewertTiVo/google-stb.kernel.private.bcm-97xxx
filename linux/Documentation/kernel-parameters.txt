@@ -2583,6 +2583,12 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			Format: { parport<nr> | timid | 0 }
 			See also Documentation/parport.txt.
 
+	pmem=size[KMG][@offset[KMG]] 	[KNL,BRCM]
+			Set aside a contiguous reserved memory region at the
+			specified location (for pstore/ramoops buffer). Specifying
+			pmem=0 will disable pmem entirely.
+
+
 	pmtmr=		[X86] Manual setup of pmtmr I/O Port.
 			Override pmtimer IOPort with a hex value.
 			e.g. pmtmr=0x508

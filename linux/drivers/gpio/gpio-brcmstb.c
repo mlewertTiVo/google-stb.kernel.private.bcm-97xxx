@@ -220,15 +220,16 @@ static void brcmstb_gpio_irq_bank_handler(int irq,
 	while ((status = bank->bgc.read_reg(reg_base + GIO_STAT(bank->id)) &
 			 bank->bgc.read_reg(reg_base + GIO_MASK(bank->id)))) {
 		int bit;
+
+		/* Ack the status bits we are about to service */
+		bank->bgc.write_reg(reg_base + GIO_STAT(bank->id),
+				    status);
+
 		for_each_set_bit(bit, &status, 32) {
-			u32 stat = bank->bgc.read_reg(reg_base +
-						      GIO_STAT(bank->id));
 			if (bit >= bank->width)
 				dev_warn(&priv->pdev->dev,
 					 "IRQ for invalid GPIO (bank=%d, offset=%d)\n",
 					 bank->id, bit);
-			bank->bgc.write_reg(reg_base + GIO_STAT(bank->id),
-					    stat | BIT(bit));
 			generic_handle_irq(irq_find_mapping(irq_domain, bit));
 		}
 	}
@@ -355,6 +356,7 @@ static int brcmstb_gpio_irq_setup(struct platform_device *pdev,
 	struct device_node *np = dev->of_node;
 
 	bank->irq_chip.name = dev_name(dev);
+	bank->irq_chip.irq_disable = brcmstb_gpio_irq_mask;
 	bank->irq_chip.irq_mask = brcmstb_gpio_irq_mask;
 	bank->irq_chip.irq_unmask = brcmstb_gpio_irq_unmask;
 	bank->irq_chip.irq_set_type = brcmstb_gpio_irq_set_type;
@@ -551,7 +553,18 @@ static struct platform_driver brcmstb_gpio_driver = {
 	.probe = brcmstb_gpio_probe,
 	.remove = brcmstb_gpio_remove,
 };
-module_platform_driver(brcmstb_gpio_driver);
+
+static int __init brcmstb_gpio_init(void)
+{
+	return platform_driver_register(&brcmstb_gpio_driver);
+}
+subsys_initcall(brcmstb_gpio_init);
+
+static void __exit brcmstb_gpio_exit(void)
+{
+	platform_driver_unregister(&brcmstb_gpio_driver);
+}
+module_exit(brcmstb_gpio_exit);
 
 MODULE_AUTHOR("Gregory Fong");
 MODULE_DESCRIPTION("Driver for Broadcom BRCMSTB SoC UPG GPIO");

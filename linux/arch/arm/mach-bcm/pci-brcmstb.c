@@ -30,8 +30,10 @@
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
 #include <linux/of_address.h>
+#include <linux/of_pci.h>
 #include <linux/module.h>
 #include <linux/irqdomain.h>
+#include <linux/regulator/consumer.h>
 
 /* Broadcom PCIE Offsets */
 #define PCIE_RC_CFG_PCIE_LINK_CAPABILITY		0x00b8
@@ -103,6 +105,11 @@ struct brcm_window {
 	struct resource pcie_iomem_res;
 };
 
+struct brcm_dev_pwr_supply {
+	struct list_head node;
+	char name[32];
+	struct regulator *regulator;
+};
 
 /* Internal Bus Controller Information.*/
 struct brcm_pcie {
@@ -120,6 +127,8 @@ struct brcm_pcie {
 	struct brcm_window	out_wins[BRCM_NUM_PCI_OUT_WINS];
 	struct pci_sys_data	*sys;
 	struct device		*dev;
+	struct list_head	pwr_supplies;
+	bool			broken_pcie_irq_map_dt;
 };
 
 static struct list_head brcm_pcie;
@@ -473,11 +482,22 @@ static void enter_l23(struct brcm_pcie *pcie)
 static int pcie_suspend(void)
 {
 	struct brcm_pcie *pcie;
+	struct list_head *pos;
+	struct brcm_dev_pwr_supply *supply;
+
 
 	list_for_each_entry(pcie, &brcm_pcie, list) {
 		enter_l23(pcie);
 		turn_off(pcie->base);
 		clk_disable(pcie->clk);
+		list_for_each(pos, &pcie->pwr_supplies) {
+			supply = list_entry(pos, struct brcm_dev_pwr_supply,
+					    node);
+			if (regulator_disable(supply->regulator))
+				pr_debug("Unable to turn off %s supply.\n",
+					 supply->name);
+
+		}
 		pcie->suspended = true;
 	}
 	return 0;
@@ -488,11 +508,20 @@ static void pcie_resume(void)
 {
 	int i = 0;
 	struct brcm_pcie *pcie;
+	struct list_head *pos;
+	struct brcm_dev_pwr_supply *supply;
 
 	list_for_each_entry(pcie, &brcm_pcie, list) {
 		void __iomem *base;
 
 		base = pcie->base;
+		list_for_each(pos, &pcie->pwr_supplies) {
+			supply = list_entry(pos, struct brcm_dev_pwr_supply,
+					    node);
+			if (regulator_enable(supply->regulator))
+				pr_debug("Unable to turn on %s supply.\n",
+					 supply->name);
+		}
 		clk_enable(pcie->clk);
 
 		/* Take bridge out of reset so we can access the SERDES reg */
@@ -636,6 +665,8 @@ static int __init brcm_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 	struct brcm_pcie *pcie = sys->private_data;
 
 	if (pcie) {
+		if (!pcie->broken_pcie_irq_map_dt)
+			return of_irq_parse_and_map_pci(dev, slot, pin);
 		if ((pin - 1) > 3)
 			return 0;
 		return pcie->pcie_irq[pin - 1];
@@ -654,6 +685,9 @@ brcm_pcibios_fixup(struct pci_dev *dev)
 	struct brcm_pcie *pcie = sys->private_data;
 	int slot = PCI_SLOT(dev->devfn);
 
+	/* Set the root pci_dev's device node */
+	if (dev->bus->self == NULL && !dev->dev.of_node)
+		dev->dev.of_node = pcie->dn;
 	dev_info(pcie->dev,
 		 "found device %04x:%04x on bus %d (%s), slot %d (irq %d)\n",
 		 dev->vendor, dev->device, dev->bus->number, pcie->name,
@@ -675,10 +709,39 @@ static int __init brcm_pci_probe(struct platform_device *pdev)
 	const u32 *ranges, *log2_scb_sizes, *dma_ranges;
 	void __iomem *base;
 	u32 tmp;
+	int supplies;
+	const char *name;
+	struct brcm_dev_pwr_supply *supply;
 
 	pcie = devm_kzalloc(&pdev->dev, sizeof(struct brcm_pcie), GFP_KERNEL);
 	if (!pcie)
 		return -ENOMEM;
+
+	INIT_LIST_HEAD(&pcie->pwr_supplies);
+	supplies = of_property_count_strings(dn, "supply-names");
+	if (supplies <= 0)
+		supplies = 0;
+
+	for (i = 0; i < supplies; i++) {
+		if (of_property_read_string_index(dn, "supply-names", i,
+						  &name))
+			continue;
+		supply = devm_kzalloc(&pdev->dev, sizeof(*supply), GFP_KERNEL);
+		if (!supply)
+			return -ENOMEM;
+		strncpy(supply->name, name, sizeof(supply->name));
+		supply->name[sizeof(supply->name) - 1] = '\0';
+		supply->regulator = devm_regulator_get(&pdev->dev, name);
+		if (IS_ERR(supply->regulator)) {
+			dev_err(&pdev->dev, "Unable to get %s supply, err=%d\n",
+				name, (int)PTR_ERR(supply->regulator));
+			continue;
+		}
+		if (regulator_enable(supply->regulator))
+			dev_err(&pdev->dev, "Unable to enable %s supply.\n",
+				name);
+		list_add_tail(&supply->node, &pcie->pwr_supplies);
+	}
 
 	/* 'num_memc' will be set only by the first controller, and all
 	 * other controllers will use the value set by the first. */
@@ -696,15 +759,21 @@ static int __init brcm_pci_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	imap_prop = of_get_property(dn, "interrupt-map", &len);
+
 	if (imap_prop == NULL) {
 		dev_err(&pdev->dev, "missing interrupt-map\n");
 		return -EINVAL;
 	}
 
-	irq_offset = irq_of_parse_and_map(dn, 0);
-	for (i = 0; i < 4 && i*4 < len; i++)
-		pcie->pcie_irq[i] = irq_offset
-			+ of_read_number(imap_prop + (i * 7 + 5), 1);
+	if (len == sizeof(u32) * 4 * 7) {
+		/* broken method for getting INT{ABCD} */
+		dev_info(&pdev->dev, "adjusting to legacy (broken) pcie DT\n");
+		pcie->broken_pcie_irq_map_dt = true;
+		irq_offset = irq_of_parse_and_map(dn, 0);
+		for (i = 0; i < 4 && i*4 < len; i++)
+			pcie->pcie_irq[i] = irq_offset
+				+ of_read_number(imap_prop + (i * 7 + 5), 1);
+	}
 
 	snprintf(pcie->name,
 		 sizeof(pcie->name)-1, "PCIe%d", brcm_num_pci_controllers);
@@ -722,6 +791,7 @@ static int __init brcm_pci_probe(struct platform_device *pdev)
 	pcie->dn = dn;
 	pcie->base = base;
 	pcie->dev = &pdev->dev;
+	pcie->dev->of_node = dn;
 	pcie->gen = 0;
 
 	ret = of_property_read_u32(dn, "brcm,gen", &tmp);
@@ -851,4 +921,4 @@ int __init brcm_pcibios_init(void)
 }
 
 
-arch_initcall(brcm_pcibios_init);
+fs_initcall(brcm_pcibios_init);
