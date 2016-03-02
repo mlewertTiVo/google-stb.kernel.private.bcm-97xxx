@@ -2946,8 +2946,8 @@ static int bcmgenet_drv_probe(struct platform_device *pdev)
 
 	/* Request the WOL interrupt line and advertise suspend if available */
 	priv->wol_irq_disabled = 1;
-	err = devm_request_irq(&pdev->dev, priv->wol_irq, bcmgenet_wol_isr,
-				IRQF_SHARED, dev->name, priv);
+	err = devm_request_irq(&pdev->dev, priv->wol_irq, bcmgenet_wol_isr, 0,
+				dev->name, priv);
 	if (!err)
 		device_set_wakeup_capable(&pdev->dev, 1);
 

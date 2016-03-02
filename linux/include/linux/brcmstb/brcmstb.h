@@ -1,5 +1,5 @@
 /*
- * Copyright © 2009-2015 Broadcom Corporation
+ * Copyright © 2009-2016 Broadcom Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -27,7 +27,7 @@
 #ifndef _ASM_BRCMSTB_BRCMSTB_H
 #define _ASM_BRCMSTB_BRCMSTB_H
 
-#define BRCMSTB_H_VERSION  5
+#define BRCMSTB_H_VERSION  6
 
 #if !defined(__ASSEMBLY__)
 
@@ -122,28 +122,6 @@
 #include <linux/brcmstb/3390b0/bchp_switch_fcb.h>
 #include <linux/brcmstb/3390b0/bchp_switch_reg.h>
 #include <linux/brcmstb/3390b0/bchp_usb_ctrl.h>
-
-#elif defined(CONFIG_BCM7145B0)
-#include <linux/brcmstb/7145b0/bchp_bspi.h>
-#include <linux/brcmstb/7145b0/bchp_bspi_raf.h>
-#include <linux/brcmstb/7145b0/bchp_common.h>
-#include <linux/brcmstb/7145b0/bchp_ebi.h>
-#include <linux/brcmstb/7145b0/bchp_hif_intr2.h>
-#include <linux/brcmstb/7145b0/bchp_hif_mspi.h>
-#include <linux/brcmstb/7145b0/bchp_hif_spi_intr2.h>
-#include <linux/brcmstb/7145b0/bchp_irq0.h>
-#include <linux/brcmstb/7145b0/bchp_nand.h>
-#include <linux/brcmstb/7145b0/bchp_sdio_0_cfg.h>
-#include <linux/brcmstb/7145b0/bchp_sun_top_ctrl.h>
-#include <linux/brcmstb/7145b0/bchp_switch_acb.h>
-#include <linux/brcmstb/7145b0/bchp_switch_core.h>
-#include <linux/brcmstb/7145b0/bchp_switch_fcb.h>
-#include <linux/brcmstb/7145b0/bchp_switch_indir_rw.h>
-#include <linux/brcmstb/7145b0/bchp_switch_intrl2_0.h>
-#include <linux/brcmstb/7145b0/bchp_switch_intrl2_1.h>
-#include <linux/brcmstb/7145b0/bchp_switch_mdio.h>
-#include <linux/brcmstb/7145b0/bchp_switch_reg.h>
-#include <linux/brcmstb/7145b0/bchp_usb_ctrl.h>
 
 #elif defined(CONFIG_BCM7250B0)
 #include <linux/brcmstb/7250b0/bchp_bspi.h>

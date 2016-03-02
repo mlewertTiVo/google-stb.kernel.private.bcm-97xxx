@@ -192,6 +192,17 @@ static int brcmstb_waketmr_prepare_suspend(struct brcmstb_waketmr *timer)
 	return 0;
 }
 
+static void brcmstb_waketmr_prepare_shutdown(struct brcmstb_waketmr *timer)
+{
+#ifdef CONFIG_BRCMSTB_WKTMR_DISABLE_ON_SHUTDOWN
+	if (device_may_wakeup(timer->dev)) {
+		brcmstb_waketmr_clear_alarm(timer);
+	}
+#else
+	brcmstb_waketmr_prepare_suspend(timer);
+#endif
+}
+
 /* If enabled as a wakeup-source, arm the timer when powering off */
 static int brcmstb_waketmr_reboot(struct notifier_block *nb,
 		unsigned long action, void *data)
@@ -207,7 +218,7 @@ static int brcmstb_waketmr_reboot(struct notifier_block *nb,
 		getnstimeofday(&now);
 		brcmstb_waketmr_write_persistent_clock(&now);
 #endif
-		brcmstb_waketmr_prepare_suspend(timer);
+		brcmstb_waketmr_prepare_shutdown(timer);
 	}
 
 	return NOTIFY_DONE;
