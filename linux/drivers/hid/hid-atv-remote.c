@@ -1474,6 +1474,10 @@ static int atvr_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	pr_info("%s: num_remotes %d->%d\n", __func__, num_remotes, num_remotes + 1);
 	num_remotes++;
 
+	/* Prevent system from suspending while remote is connected */
+	device_init_wakeup(&hdev->dev, 1);
+	pm_stay_awake(&hdev->dev);
+
 	return 0;
 err_stop:
 	hid_hw_stop(hdev);
@@ -1492,6 +1496,9 @@ static void atvr_remove(struct hid_device *hdev)
 	num_remotes--;
 	hid_hw_stop(hdev);
 	atvr_snd->hdev = NULL;
+
+	pm_relax(&hdev->dev);
+	device_init_wakeup(&hdev->dev, 0);
 }
 
 static const struct hid_device_id atvr_devices[] = {
