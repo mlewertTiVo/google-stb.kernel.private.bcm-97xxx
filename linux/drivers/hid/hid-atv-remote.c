@@ -27,6 +27,7 @@
 #include <linux/spinlock.h>
 #include <linux/vmalloc.h>
 #include <linux/switch.h>
+#include <linux/delay.h>
 #include <sound/core.h>
 #include <sound/control.h>
 #include <sound/info.h>
@@ -38,7 +39,7 @@
 
 MODULE_LICENSE("GPL v2");
 
-#define snd_atvr_log(...) pr_info("snd_atvr: " __VA_ARGS__)
+#define snd_atvr_log(...) pr_debug("snd_atvr: " __VA_ARGS__)
 
 /* These values are copied from Android WiredAccessoryObserver */
 enum headset_state {
@@ -630,6 +631,7 @@ static int snd_atvr_decode_8KHz_mSBC_packet(
 	uint32_t pos;
 	uint read_index;
 	uint write_index;
+	bool reset = false;
 	struct snd_atvr *atvr_snd = snd_pcm_substream_chip(substream);
 
 	/* Decode mSBC data to PCM. */
@@ -644,9 +646,9 @@ static int snd_atvr_decode_8KHz_mSBC_packet(
 	if (atvr_snd->packet_in_frame == 0) {
 		if (sbc_input[0] != mSBC_sequence_table[atvr_snd->seq_index]) {
 			snd_atvr_log("sequence_num err, 0x%02x != 0x%02x\n",
-				     sbc_input[1],
+				     sbc_input[0],
 				     mSBC_sequence_table[atvr_snd->seq_index]);
-			return 0;
+			reset = true;
 		}
 		atvr_snd->seq_index++;
 		if (atvr_snd->seq_index == NUM_SEQUENCES)
@@ -655,11 +657,30 @@ static int snd_atvr_decode_8KHz_mSBC_packet(
 		/* subtract the sequence number */
 		num_bytes--;
 	}
+	/* check if the expected number of bytes are received */
 	if (num_bytes != mSBC_bytes_in_packet[atvr_snd->packet_in_frame]) {
-		pr_err("%s: received %zd audio bytes but expected %d bytes\n",
-		       __func__, num_bytes,
-		       mSBC_bytes_in_packet[atvr_snd->packet_in_frame]);
-		return 0;
+		snd_atvr_log("%s: received %zd audio bytes but expected %d bytes\n",
+					__func__, num_bytes,
+					mSBC_bytes_in_packet[atvr_snd->packet_in_frame]);
+		reset = true;
+	}
+	/* At least a packet must have been dropped, try to recover from it. */
+	if (reset) {
+		for (i = 0; i < NUM_SEQUENCES; i++) {
+			if (sbc_input[0] == mSBC_sequence_table[i]) {
+				snd_atvr_log("%s:%d reset packet to sequence = %x:%x\n",
+							__func__, __LINE__, mSBC_sequence_table[i],
+							sbc_input[1]);
+				atvr_snd->seq_index = (i + 1) % NUM_SEQUENCES;
+				atvr_snd->packet_in_frame = 0;
+				break;
+			}
+		}
+		if (i == NUM_SEQUENCES) {
+			snd_atvr_log("%s:%d unrecoverable - try again\n",
+						__func__, __LINE__);
+			return 0;
+		}
 	}
 	write_index = mSBC_start_offset_in_buffer[atvr_snd->packet_in_frame];
 	read_index = mSBC_start_offset_in_packet[atvr_snd->packet_in_frame];
@@ -901,25 +922,20 @@ static void snd_atvr_timer_callback(unsigned long data)
 		}
 
 	case TIMER_STATE_DURING_DECODE:
-		packets_read = snd_atvr_decode_from_fifo(substream);
-		if (packets_read > 0) {
-			/* Defer timeout */
+		do {
+			packets_read = snd_atvr_decode_from_fifo(substream);
+			if (packets_read <= 0) {
+				if (s_substream_for_btle == NULL) {
+					snd_atvr_log("decoder had stopped or audio OVERFLOW detected\n");
+					atvr_snd->timer_state = TIMER_STATE_AFTER_DECODE;
+				} else if ((jiffies - atvr_snd->previous_jiffies) >
+							atvr_snd->timeout_jiffies) {
+					snd_atvr_log("audio UNDERFLOW detected\n");
+				}
+			}
 			atvr_snd->previous_jiffies = jiffies;
-			break;
-		}
-		if (s_substream_for_btle == NULL) {
-			atvr_snd->timer_state = TIMER_STATE_AFTER_DECODE;
-			/* Decoder died. Overflowed?
-			 * Fall through into next state. */
-		} else if ((jiffies - atvr_snd->previous_jiffies) >
-			   atvr_snd->timeout_jiffies) {
-			snd_atvr_log("audio UNDERFLOW detected\n");
-			/*  Not fatal.  Reset timeout. */
-			atvr_snd->previous_jiffies = jiffies;
-			break;
-		} else
-			break;
-
+		} while (packets_read > 0);
+		break;
 	case TIMER_STATE_AFTER_DECODE:
 		need_silence = true;
 		break;
@@ -1021,6 +1037,15 @@ static int snd_atvr_mic_control(struct snd_atvr *atvr_snd, int on)
 			__func__, __LINE__, ret);
 		return ret;
 	}
+
+	/*
+	 * Introduced delay when turning on the mic; this helps stabilizing
+	 * the mic and improves the robustness of catching the first
+	 * voice messages
+	 */
+	if (on)
+		msleep(50);
+
 	return 0;
 }
 

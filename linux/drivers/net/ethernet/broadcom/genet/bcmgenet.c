@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2008 Broadcom Corporation
+ * Copyright (c) 2002-2016 Broadcom
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -17,7 +17,7 @@
  *
  * File Name  : bcmgenet.c
  *
- * Description: This is Linux driver for the broadcom GENET ethernet MAC core.
+ * Description: This is Linux driver for the Broadcom GENET ethernet MAC core.
 
 */
 
@@ -104,7 +104,7 @@ static inline void dmadesc_set_addr(struct bcmgenet_priv *priv,
 
 	/* Register writes to GISB bus can take couple hundred nanoseconds
 	 * and are done for each packet, save these expensive writes unless
-	 * the platform is explicitely configured for 64-bits/LPAE.
+	 * the platform is explicitly configured for 64-bits/LPAE.
 	 */
 #ifdef CONFIG_PHYS_ADDR_T_64BIT
 	if (priv->hw_params->flags & GENET_HAS_40BITS)
@@ -116,8 +116,8 @@ static inline void dmadesc_set_addr(struct bcmgenet_priv *priv,
 static inline void dmadesc_set(struct bcmgenet_priv *priv,
 				void __iomem *d, dma_addr_t addr, u32 val)
 {
-	dmadesc_set_length_status(priv, d, val);
 	dmadesc_set_addr(priv, d, addr);
+	dmadesc_set_length_status(priv, d, val);
 }
 
 static inline dma_addr_t dmadesc_get_addr(struct bcmgenet_priv *priv,
@@ -129,7 +129,7 @@ static inline dma_addr_t dmadesc_get_addr(struct bcmgenet_priv *priv,
 
 	/* Register writes to GISB bus can take couple hundred nanoseconds
 	 * and are done for each packet, save these expensive writes unless
-	 * the platform is explicitely configured for 64-bits/LPAE.
+	 * the platform is explicitly configured for 64-bits/LPAE.
 	 */
 #ifdef CONFIG_PHYS_ADDR_T_64BIT
 	if (priv->hw_params->flags & GENET_HAS_40BITS)
@@ -481,6 +481,22 @@ static inline void bcmgenet_rdma_ring_writel(struct bcmgenet_priv *priv,
 			genet_dma_ring_regs[r]);
 }
 
+static int bcmgenet_begin(struct net_device *dev)
+{
+	struct bcmgenet_priv *priv = netdev_priv(dev);
+
+	/* Turn on the clock */
+	return clk_prepare_enable(priv->clk);
+}
+
+static void bcmgenet_complete(struct net_device *dev)
+{
+	struct bcmgenet_priv *priv = netdev_priv(dev);
+
+	/* Turn off the clock */
+	clk_disable_unprepare(priv->clk);
+}
+
 static int bcmgenet_get_settings(struct net_device *dev,
 		struct ethtool_cmd *cmd)
 {
@@ -628,7 +644,7 @@ static int bcmgenet_set_coalesce(struct net_device *dev,
 
 	/* GENET TDMA hardware does not support a configurable timeout, but will
 	 * always generate an interrupt either after MBDONE packets have been
-	 * transmitted, or when the ring is emtpy.
+	 * transmitted, or when the ring is empty.
 	 */
 	if (ec->tx_coalesce_usecs || ec->tx_coalesce_usecs_high ||
 	    ec->tx_coalesce_usecs_irq || ec->tx_coalesce_usecs_low)
@@ -998,6 +1014,8 @@ static int bcmgenet_nway_reset(struct net_device *dev)
 
 /* standard ethtool support functions. */
 static struct ethtool_ops bcmgenet_ethtool_ops = {
+	.begin			= bcmgenet_begin,
+	.complete		= bcmgenet_complete,
 	.get_strings		= bcmgenet_get_strings,
 	.get_sset_count		= bcmgenet_get_sset_count,
 	.get_ethtool_stats	= bcmgenet_get_ethtool_stats,
@@ -1169,9 +1187,11 @@ static void __bcmgenet_tx_reclaim(struct net_device *dev,
 	int last_tx_cn, last_c_index, num_tx_bds;
 	struct enet_cb *tx_cb_ptr;
 	struct netdev_queue *txq;
+	unsigned int pkts_compl = 0;
+	unsigned int bytes_compl = 0;
 	unsigned int c_index;
 
-	/* Compute how many buffers are transmited since last xmit call */
+	/* Compute how many buffers are transmitted since last xmit call */
 	c_index = bcmgenet_tdma_ring_readl(priv, ring->index, TDMA_CONS_INDEX);
 	txq = netdev_get_tx_queue(dev, ring->queue);
 
@@ -1195,27 +1215,28 @@ static void __bcmgenet_tx_reclaim(struct net_device *dev,
 	while (last_tx_cn-- > 0) {
 		tx_cb_ptr = ring->cbs + last_c_index;
 		if (tx_cb_ptr->skb) {
-			dev->stats.tx_bytes += tx_cb_ptr->skb->len;
+			pkts_compl++;
+			bytes_compl += GENET_CB(tx_cb_ptr->skb)->bytes_sent;
 			dma_unmap_single(&dev->dev,
 					dma_unmap_addr(tx_cb_ptr, dma_addr),
-					tx_cb_ptr->skb->len,
+					dma_unmap_len(tx_cb_ptr, dma_len),
 					DMA_TO_DEVICE);
 			bcmgenet_free_cb(tx_cb_ptr);
 		} else if (dma_unmap_addr(tx_cb_ptr, dma_addr)) {
-			dev->stats.tx_bytes +=
-				dma_unmap_len(tx_cb_ptr, dma_len);
 			dma_unmap_page(&dev->dev,
 					dma_unmap_addr(tx_cb_ptr, dma_addr),
 					dma_unmap_len(tx_cb_ptr, dma_len),
 					DMA_TO_DEVICE);
 			dma_unmap_addr_set(tx_cb_ptr, dma_addr, 0);
 		}
-		dev->stats.tx_packets++;
 		ring->free_bds += 1;
 
 		last_c_index++;
 		last_c_index &= (num_tx_bds - 1);
 	}
+
+	dev->stats.tx_packets += pkts_compl;
+	dev->stats.tx_bytes += bytes_compl;
 
 	if (ring->free_bds > (MAX_SKB_FRAGS + 1))
 		ring->int_disable(priv, ring);
@@ -1272,7 +1293,7 @@ static int bcmgenet_xmit_single(struct net_device *dev,
 
 	tx_cb_ptr->skb = skb;
 
-	skb_len = skb_headlen(skb) < ETH_ZLEN ? ETH_ZLEN : skb_headlen(skb);
+	skb_len = skb_headlen(skb);
 
 	mapping = dma_map_single(kdev, skb->data, skb_len, DMA_TO_DEVICE);
 	ret = dma_mapping_error(kdev, mapping);
@@ -1284,7 +1305,7 @@ static int bcmgenet_xmit_single(struct net_device *dev,
 	}
 
 	dma_unmap_addr_set(tx_cb_ptr, dma_addr, mapping);
-	dma_unmap_len_set(tx_cb_ptr, dma_len, skb->len);
+	dma_unmap_len_set(tx_cb_ptr, dma_len, skb_len);
 	length_status = (skb_len << DMA_BUFLENGTH_SHIFT) | dma_desc_flags |
 			(priv->hw_params->qtag_mask << DMA_TX_QTAG_SHIFT) |
 			DMA_TX_APPEND_CRC;
@@ -1302,7 +1323,7 @@ static int bcmgenet_xmit_single(struct net_device *dev,
 	return 0;
 }
 
-/* Transmit a SKB fragement */
+/* Transmit a SKB fragment */
 static int bcmgenet_xmit_frag(struct net_device *dev,
 				skb_frag_t *frag,
 				u16 dma_desc_flags,
@@ -1311,6 +1332,7 @@ static int bcmgenet_xmit_frag(struct net_device *dev,
 	struct bcmgenet_priv *priv = netdev_priv(dev);
 	struct device *kdev = &priv->pdev->dev;
 	struct enet_cb *tx_cb_ptr;
+	unsigned int frag_size;
 	dma_addr_t mapping;
 	int ret;
 
@@ -1320,8 +1342,9 @@ static int bcmgenet_xmit_frag(struct net_device *dev,
 		BUG();
 	tx_cb_ptr->skb = NULL;
 
-	mapping = skb_frag_dma_map(kdev, frag, 0,
-		skb_frag_size(frag), DMA_TO_DEVICE);
+	frag_size = skb_frag_size(frag);
+
+	mapping = skb_frag_dma_map(kdev, frag, 0, frag_size, DMA_TO_DEVICE);
 	ret = dma_mapping_error(kdev, mapping);
 	if (ret) {
 		priv->mib.tx_dma_failed++;
@@ -1332,10 +1355,10 @@ static int bcmgenet_xmit_frag(struct net_device *dev,
 	}
 
 	dma_unmap_addr_set(tx_cb_ptr, dma_addr, mapping);
-	dma_unmap_len_set(tx_cb_ptr, dma_len, frag->size);
+	dma_unmap_len_set(tx_cb_ptr, dma_len, frag_size);
 
 	dmadesc_set(priv, tx_cb_ptr->bd_addr, mapping,
-			(frag->size << DMA_BUFLENGTH_SHIFT) | dma_desc_flags |
+			(frag_size << DMA_BUFLENGTH_SHIFT) | dma_desc_flags |
 			(priv->hw_params->qtag_mask << DMA_TX_QTAG_SHIFT));
 
 
@@ -1422,7 +1445,7 @@ static netdev_tx_t bcmgenet_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	index = skb_get_queue_mapping(skb);
 	/* Mapping strategy:
-	 * queue_mapping = 0, unclassfieid, packet xmited through ring16
+	 * queue_mapping = 0, unclassified, packet xmited through ring16
 	 * queue_mapping = 1, goes to ring 0. (highest priority queue
 	 * queue_mapping = 2, goes to ring 1.
 	 * queue_mapping = 3, goes to ring 2.
@@ -1433,15 +1456,19 @@ static netdev_tx_t bcmgenet_xmit(struct sk_buff *skb, struct net_device *dev)
 	else
 		index -= 1;
 
-	nr_frags = skb_shinfo(skb)->nr_frags;
 	ring = &priv->tx_rings[index];
 	txq = netdev_get_tx_queue(dev, ring->queue);
 
+	nr_frags = skb_shinfo(skb)->nr_frags;
+
 	spin_lock_irqsave(&ring->lock, flags);
-	if (ring->free_bds <= nr_frags + 1) {
-		netif_tx_stop_queue(txq);
-		netdev_err(dev, "%s: tx ring %d full when queue %d awake\n",
-				__func__, index, ring->queue);
+	if (ring->free_bds <= (nr_frags + 1)) {
+		if (!netif_tx_queue_stopped(txq)) {
+			netif_tx_stop_queue(txq);
+			netdev_err(dev,
+				   "%s: tx ring %d full when queue %d awake\n",
+				   __func__, index, ring->queue);
+		}
 		ret = NETDEV_TX_BUSY;
 		goto out;
 	}
@@ -1454,6 +1481,11 @@ static netdev_tx_t bcmgenet_xmit(struct sk_buff *skb, struct net_device *dev)
 		ret = NETDEV_TX_OK;
 		goto out;
 	}
+
+	/* Retain how many bytes will be sent on the wire, without TSB inserted
+	 * by transmit checksum offload
+	 */
+	GENET_CB(skb)->bytes_sent = skb->len;
 
 	/* set the SKB transmit checksum */
 	if (priv->desc_64b_en) {
@@ -1638,7 +1670,7 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_priv *priv,
 
 		if (unlikely(!(dma_flag & DMA_EOP) || !(dma_flag & DMA_SOP))) {
 			netif_err(priv, rx_status, dev,
-					"Droping fragmented packet!\n");
+					"Dropping fragmented packet!\n");
 			dev->stats.rx_dropped++;
 			dev->stats.rx_errors++;
 			dev_kfree_skb_any(cb->skb);
@@ -1811,7 +1843,7 @@ static int reset_umac(struct bcmgenet_priv *priv)
 
 	if (timeout == 1000) {
 		dev_err(kdev,
-			"timeout waiting for MAC to come out of resetn\n");
+			"timeout waiting for MAC to come out of reset\n");
 		return -ETIMEDOUT;
 	}
 
@@ -2233,8 +2265,7 @@ static void bcmgenet_irq_task(struct work_struct *work)
 	}
 
 	/* Link UP/DOWN event */
-	if ((priv->hw_params->flags & GENET_HAS_MDIO_INTR) &&
-		(priv->irq0_stat & UMAC_IRQ_LINK_EVENT)) {
+	if (priv->irq0_stat & UMAC_IRQ_LINK_EVENT) {
 		phy_mac_interrupt(priv->phydev,
 				!!(priv->irq0_stat & UMAC_IRQ_LINK_UP));
 		priv->irq0_stat &= ~UMAC_IRQ_LINK_EVENT;
@@ -2279,7 +2310,7 @@ static irqreturn_t bcmgenet_isr0(int irq, void *dev_id)
 	priv->irq0_stat =
 		bcmgenet_intrl2_0_readl(priv, INTRL2_CPU_STAT) &
 		~bcmgenet_intrl2_0_readl(priv, INTRL2_CPU_MASK_STATUS);
-	/* clear inerrupts*/
+	/* clear interrupts*/
 	bcmgenet_intrl2_0_writel(priv, priv->irq0_stat, INTRL2_CPU_CLEAR);
 
 	netif_dbg(priv, intr, priv->dev,
@@ -2538,7 +2569,7 @@ static int bcmgenet_close(struct net_device *dev)
 	if (ret)
 		return ret;
 
-	/* Disable MAC transmit. TX DMA disabled have to done before this */
+	/* Disable MAC transmit. TX DMA disabled must be done before this */
 	umac_enable_set(priv, CMD_TX_EN, false);
 
 	/* tx reclaim */
@@ -2600,7 +2631,7 @@ static void bcmgenet_set_rx_mode(struct net_device *dev)
 
 	netif_dbg(priv, hw, dev, "%s: %08X\n", __func__, dev->flags);
 
-	/* Promiscous mode */
+	/* Promiscuous mode */
 	reg = bcmgenet_umac_readl(priv, UMAC_CMD);
 	if (dev->flags & IFF_PROMISC) {
 		reg |= CMD_PROMISC;
@@ -2994,6 +3025,12 @@ static int bcmgenet_drv_probe(struct platform_device *pdev)
 		priv->clk_eee = NULL;
 	}
 
+	/* If this is an internal GPHY, power it on now, before UniMAC is
+	 * brought out of reset as absolutely no UniMAC activity is allowed
+	 */
+	if (priv->phy_type == BRCM_PHY_TYPE_INT)
+		bcmgenet_power_up(priv, GENET_POWER_PASSIVE);
+
 	err = reset_umac(priv);
 	if (err)
 		goto err_clk_disable;
@@ -3070,7 +3107,7 @@ static int bcmgenet_suspend(struct device *d)
 	if (ret)
 		return ret;
 
-	/* Disable MAC transmit. TX DMA disabled have to done before this */
+	/* Disable MAC transmit. TX DMA disabled must be done before this */
 	umac_enable_set(priv, CMD_TX_EN, 0);
 
 	/* tx reclaim */

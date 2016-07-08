@@ -1,6 +1,6 @@
 /*
  *
- * Copyright (c) 2002-2008 Broadcom Corporation
+ * Copyright (c) 2002-20016 Broadcom
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -546,6 +546,12 @@ struct bcmgenet_hw_params {
 	u32		words_per_bd;
 	u32		flags;
 };
+
+struct bcmgenet_skb_cb {
+	unsigned int bytes_sent;	/* bytes on the wire (no TSB) */
+};
+
+#define GENET_CB(skb)	((struct bcmgenet_skb_cb *)((skb)->cb))
 
 struct bcmgenet_tx_ring {
 	spinlock_t	lock;		/* ring lock */
