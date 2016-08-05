@@ -372,4 +372,4 @@ void brcm_usb_common_init(struct brcm_usb_common_init_params *params)
 #endif
 
 }
-
+EXPORT_SYMBOL(brcm_usb_common_init);

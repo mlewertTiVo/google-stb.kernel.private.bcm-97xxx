@@ -81,7 +81,8 @@ unsigned long cma_get_maxchunk(struct cma *cma)
 	return maxchunk << cma->order_per_bit;
 }
 
-static unsigned long cma_bitmap_aligned_mask(struct cma *cma, int align_order)
+static unsigned long cma_bitmap_aligned_mask(struct cma *cma,
+					     unsigned int align_order)
 {
 	if (align_order <= cma->order_per_bit)
 		return 0;
@@ -89,16 +90,14 @@ static unsigned long cma_bitmap_aligned_mask(struct cma *cma, int align_order)
 }
 
 /*
- * Find a PFN aligned to the specified order and return an offset represented in
- * order_per_bits.
+ * Find the offset of the base PFN from the specified align_order.
+ * The value returned is represented in order_per_bits.
  */
-static unsigned long cma_bitmap_aligned_offset(struct cma *cma, int align_order)
+static unsigned long cma_bitmap_aligned_offset(struct cma *cma,
+					       unsigned int align_order)
 {
-	if (align_order <= cma->order_per_bit)
-		return 0;
-
-	return (ALIGN(cma->base_pfn, (1UL << align_order))
-		- cma->base_pfn) >> cma->order_per_bit;
+	return (cma->base_pfn & ((1UL << align_order) - 1))
+		>> cma->order_per_bit;
 }
 
 static unsigned long cma_bitmap_pages_to_bits(struct cma *cma,
