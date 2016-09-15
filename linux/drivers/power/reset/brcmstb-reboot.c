@@ -33,11 +33,28 @@
 
 /* Other AON Register Definitions can be found in 'mach-bcm/aon_defs.h'*/
 #define AON_REG_ANDROID_RESTART_CAUSE	0x24
+#define AON_REG_ANDROID_RESTART_TIME	0x28
+#define AON_REG_ANDROID_RESTART_TIME_N	0x2C
 
 static struct regmap *regmap;
 static u32 rst_src_en;
 static u32 sw_mstr_rst;
 static void __iomem *aon_sram_base;
+
+#ifdef CONFIG_BRCMSTB_WKTMR_SYSTIME_SYNC
+static inline void brcmstb_save_reboot_time(void)
+{
+	/* Sync the wall clock into AON SRAM since wktmr gets reset */
+	struct timespec now;
+	u32 sec;
+
+	getnstimeofday(&now);
+
+	sec = now.tv_sec + (now.tv_nsec + 500000000) / 1000000000;
+	writel(sec, aon_sram_base + AON_REG_ANDROID_RESTART_TIME);
+	writel(~sec, aon_sram_base + AON_REG_ANDROID_RESTART_TIME_N);
+}
+#endif
 
 static void brcmstb_reboot(enum reboot_mode mode, const char *cmd)
 {
@@ -64,6 +81,9 @@ static void brcmstb_reboot(enum reboot_mode mode, const char *cmd)
 			pr_info("brcmstb_reboot: empty cmd string\n");
 		}
 		writel(val, aon_sram_base + AON_REG_ANDROID_RESTART_CAUSE);
+#ifdef CONFIG_BRCMSTB_WKTMR_SYSTIME_SYNC
+		brcmstb_save_reboot_time();
+#endif
 	} else {
 		pr_info("brcmstb_reboot: reboot reason cannot be saved.\n");
 	}
