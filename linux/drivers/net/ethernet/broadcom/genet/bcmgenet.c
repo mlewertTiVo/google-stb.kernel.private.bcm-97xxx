@@ -2506,10 +2506,9 @@ static void bcmgenet_netif_stop(struct net_device *dev)
 	struct bcmgenet_priv *priv = netdev_priv(dev);
 
 	netif_tx_stop_all_queues(dev);
+	bcmgenet_intr_disable(priv);
 	napi_disable(&priv->napi);
 	phy_stop(priv->phydev);
-
-	bcmgenet_intr_disable(priv);
 
 	cancel_work_sync(&priv->bcmgenet_irq_work);
 
