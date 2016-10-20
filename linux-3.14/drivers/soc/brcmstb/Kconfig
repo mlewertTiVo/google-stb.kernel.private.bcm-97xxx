@@ -94,16 +94,6 @@ config BRCMSTB_WKTMR_SYSTIME_SYNC
 
 	  If you do not have an RTC, say Y here.
 
-config BRCMSTB_WKTMR_DISABLE_ON_SHUTDOWN
-	default n
-	depends on BRCMSTB_WKTMR
-	tristate "Disable wake-up timer when the system is shutdown"
-	help
-	  This disables the waketimer (RTC) to prevent waking up the system
-	  on timer events after shutdown.
-
-	  If you are running Android and have an RTC, say Y here.
-
 # Perform memory hashing before entering S3, using XPT DMA
 config BRCMSTB_XPT_HASH
 	bool

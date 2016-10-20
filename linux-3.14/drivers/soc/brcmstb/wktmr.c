@@ -42,6 +42,7 @@ static struct brcmstb_waketmr {
 	int wake_timeout;
 	struct notifier_block reboot_notifier;
 	bool alarm_is_active;
+	bool alarm_set_from_sysfs;
 } wktimer;
 
 /* No timeout */
@@ -61,13 +62,13 @@ static inline void brcmstb_waketmr_clear_alarm(struct brcmstb_waketmr *timer)
 }
 
 static void brcmstb_waketmr_set_alarm(struct brcmstb_waketmr *timer,
-		unsigned int secs, bool sysfs)
+		unsigned int secs)
 {
 	unsigned int t = 0;
 
 	brcmstb_waketmr_clear_alarm(timer);
 
-	if (sysfs)
+	if (timer->alarm_set_from_sysfs)
 		t = readl_relaxed(timer->base + BRCMSTB_WKTMR_COUNTER);
 	writel_relaxed(t + secs + 1, timer->base + BRCMSTB_WKTMR_ALARM);
 	timer->alarm_is_active = true;
@@ -155,6 +156,7 @@ static ssize_t brcmstb_waketmr_timeout_store(struct device *dev,
 		return -EINVAL;
 
 	timer->wake_timeout = timeout;
+	timer->alarm_set_from_sysfs = true;
 
 	return count;
 }
@@ -183,24 +185,12 @@ static int brcmstb_waketmr_prepare_suspend(struct brcmstb_waketmr *timer)
 		 * here, because brcmstb_waketmr_setalarm() isn't called.
 		 */
 		if (!timer->alarm_is_active)
-			brcmstb_waketmr_set_alarm(timer, timer->wake_timeout,
-						  true);
+			brcmstb_waketmr_set_alarm(timer, timer->wake_timeout);
 	} else {
 		dev_dbg(dev, "nothing to do: wake_timeout: %d\n",
 				timer->wake_timeout);
 	}
 	return 0;
-}
-
-static void brcmstb_waketmr_prepare_shutdown(struct brcmstb_waketmr *timer)
-{
-#ifdef CONFIG_BRCMSTB_WKTMR_DISABLE_ON_SHUTDOWN
-	if (device_may_wakeup(timer->dev)) {
-		brcmstb_waketmr_clear_alarm(timer);
-	}
-#else
-	brcmstb_waketmr_prepare_suspend(timer);
-#endif
 }
 
 /* If enabled as a wakeup-source, arm the timer when powering off */
@@ -218,7 +208,7 @@ static int brcmstb_waketmr_reboot(struct notifier_block *nb,
 		getnstimeofday(&now);
 		brcmstb_waketmr_write_persistent_clock(&now);
 #endif
-		brcmstb_waketmr_prepare_shutdown(timer);
+		brcmstb_waketmr_prepare_suspend(timer);
 	}
 
 	return NOTIFY_DONE;
@@ -300,8 +290,9 @@ static int brcmstb_waketmr_setalarm(struct device *dev,
 		sec = 0;
 
 	timer->wake_timeout = sec;
+	timer->alarm_set_from_sysfs = false;
 	dev_dbg(dev, "%s: timeout=%ld\n", __FUNCTION__, sec);
-	brcmstb_waketmr_set_alarm(timer, sec, false);
+	brcmstb_waketmr_set_alarm(timer, sec);
 
 	return 0;
 }

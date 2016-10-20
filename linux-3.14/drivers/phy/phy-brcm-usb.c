@@ -188,8 +188,9 @@ static int brcm_usb_phy_resume(struct device *dev)
 }
 #endif /* CONFIG_PM_SLEEP */
 
-static SIMPLE_DEV_PM_OPS(brcm_usb_phy_pm_ops, brcm_usb_phy_suspend,
-		brcm_usb_phy_resume);
+static const struct dev_pm_ops brcm_usb_phy_pm_ops = {
+	SET_LATE_SYSTEM_SLEEP_PM_OPS(brcm_usb_phy_suspend, brcm_usb_phy_resume)
+};
 
 static const struct of_device_id brcm_usb_dt_ids[] = {
 	{ .compatible = "brcm,usb-phy" },

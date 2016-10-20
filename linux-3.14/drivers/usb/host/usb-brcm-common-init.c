@@ -142,6 +142,52 @@ static void usb3_pll_fix(uintptr_t ctrl_base)
 	usb_mdio_write(ctrl_base, 0x07, 0x1503, MDIO_USB3);
 }
 
+static void usb3_pll_54Mhz(uintptr_t ctrl_base)
+{
+#if defined(CONFIG_BCM7364A0)
+	/*
+	 * On the 7364C0, the reference clock for the
+	 * 3.0 PLL has been changed from 50MHz to 54MHz so the
+	 * PLL needs to be reprogramed.
+	 */
+	uint32_t ofs;
+	int ii;
+
+	/* Only for 7364C0 and later */
+	if (BRCM_CHIP_REV() < 0x20)
+		return;
+
+	/* set USB 3.0 PLL to accept 54Mhz reference clock */
+	USB_CTRL_UNSET(ctrl_base, USB30_CTL1, phy3_pll_seq_start);
+
+	usb_mdio_write(ctrl_base, 0x1f, 0x8000, MDIO_USB3);
+	usb_mdio_write(ctrl_base, 0x10, 0x5784, MDIO_USB3);
+	usb_mdio_write(ctrl_base, 0x11, 0x01d0, MDIO_USB3);
+	usb_mdio_write(ctrl_base, 0x12, 0x1DE8, MDIO_USB3);
+	usb_mdio_write(ctrl_base, 0x13, 0xAA80, MDIO_USB3);
+	usb_mdio_write(ctrl_base, 0x14, 0x8826, MDIO_USB3);
+	usb_mdio_write(ctrl_base, 0x15, 0x0044, MDIO_USB3);
+	usb_mdio_write(ctrl_base, 0x16, 0x8000, MDIO_USB3);
+	usb_mdio_write(ctrl_base, 0x17, 0x0851, MDIO_USB3);
+	usb_mdio_write(ctrl_base, 0x18, 0x0000, MDIO_USB3);
+
+	/* both ports */
+	ofs = 0;
+	for (ii = 0; ii < 2; ++ii) {
+		usb_mdio_write(ctrl_base, 0x1f, (0x8040 + ofs), MDIO_USB3);
+		usb_mdio_write(ctrl_base, 0x03, 0x0090, MDIO_USB3);
+		usb_mdio_write(ctrl_base, 0x04, 0x0134, MDIO_USB3);
+		usb_mdio_write(ctrl_base, 0x1f, (0x8020 + ofs), MDIO_USB3);
+		usb_mdio_write(ctrl_base, 0x01, 0x00e2, MDIO_USB3);
+		ofs = 0x1000;
+	}
+
+	/* restart  PLL sequence */
+	USB_CTRL_SET(ctrl_base, USB30_CTL1, phy3_pll_seq_start);
+	msleep(1);
+#endif
+}
+
 
 static void usb3_ssc_enable(uintptr_t ctrl_base)
 {
@@ -308,6 +354,7 @@ void brcm_usb_common_init(struct brcm_usb_common_init_params *params)
 	usb_phy_ldo_fix(ctrl);
 	if (params->has_xhci) {
 		usb3_pll_fix(ctrl);
+		usb3_pll_54Mhz(ctrl);
 		usb3_ssc_enable(ctrl);
 	}
 
