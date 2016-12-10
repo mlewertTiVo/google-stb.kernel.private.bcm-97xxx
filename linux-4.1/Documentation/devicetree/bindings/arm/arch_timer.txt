@@ -32,6 +32,8 @@ to deliver its interrupts via SPIs.
   architecturally-defined reset values. Only supported for 32-bit
   systems which follow the ARMv7 architected reset values.
 
+- dont-use-secure-irq: If present, the secure timer irq must not be registered
+  or used.
 
 Example:
 

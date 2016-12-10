@@ -70,6 +70,7 @@ static struct clock_event_device __percpu *arch_timer_evt;
 static bool arch_timer_use_virtual = true;
 static bool arch_timer_c3stop;
 static bool arch_timer_mem_use_virtual;
+static bool arch_timer_use_secure = true;
 
 /*
  * Architected system timer support.
@@ -276,7 +277,10 @@ static void __arch_timer_setup(unsigned type,
 			clk->set_mode = arch_timer_set_mode_virt;
 			clk->set_next_event = arch_timer_set_next_event_virt;
 		} else {
-			clk->irq = arch_timer_ppi[PHYS_SECURE_PPI];
+			if (arch_timer_use_secure)
+				clk->irq = arch_timer_ppi[PHYS_SECURE_PPI];
+			else
+				clk->irq = arch_timer_ppi[PHYS_NONSECURE_PPI];
 			clk->set_mode = arch_timer_set_mode_phys;
 			clk->set_next_event = arch_timer_set_next_event_phys;
 		}
@@ -353,7 +357,8 @@ static int arch_timer_setup(struct clock_event_device *clk)
 	if (arch_timer_use_virtual)
 		enable_percpu_irq(arch_timer_ppi[VIRT_PPI], 0);
 	else {
-		enable_percpu_irq(arch_timer_ppi[PHYS_SECURE_PPI], 0);
+		if (arch_timer_use_secure)
+			enable_percpu_irq(arch_timer_ppi[PHYS_SECURE_PPI], 0);
 		if (arch_timer_ppi[PHYS_NONSECURE_PPI])
 			enable_percpu_irq(arch_timer_ppi[PHYS_NONSECURE_PPI], 0);
 	}
@@ -501,7 +506,8 @@ static void arch_timer_stop(struct clock_event_device *clk)
 	if (arch_timer_use_virtual)
 		disable_percpu_irq(arch_timer_ppi[VIRT_PPI]);
 	else {
-		disable_percpu_irq(arch_timer_ppi[PHYS_SECURE_PPI]);
+		if (arch_timer_use_secure)
+			disable_percpu_irq(arch_timer_ppi[PHYS_SECURE_PPI]);
 		if (arch_timer_ppi[PHYS_NONSECURE_PPI])
 			disable_percpu_irq(arch_timer_ppi[PHYS_NONSECURE_PPI]);
 	}
@@ -561,7 +567,7 @@ static int __init arch_timer_cpu_pm_init(void)
 
 static int __init arch_timer_register(void)
 {
-	int err;
+	int err = 0;
 	int ppi;
 
 	arch_timer_evt = alloc_percpu(struct clock_event_device);
@@ -575,14 +581,16 @@ static int __init arch_timer_register(void)
 		err = request_percpu_irq(ppi, arch_timer_handler_virt,
 					 "arch_timer", arch_timer_evt);
 	} else {
-		ppi = arch_timer_ppi[PHYS_SECURE_PPI];
-		err = request_percpu_irq(ppi, arch_timer_handler_phys,
-					 "arch_timer", arch_timer_evt);
+		if (arch_timer_use_secure) {
+			ppi = arch_timer_ppi[PHYS_SECURE_PPI];
+			err = request_percpu_irq(ppi, arch_timer_handler_phys,
+						 "arch_timer", arch_timer_evt);
+		}
 		if (!err && arch_timer_ppi[PHYS_NONSECURE_PPI]) {
 			ppi = arch_timer_ppi[PHYS_NONSECURE_PPI];
 			err = request_percpu_irq(ppi, arch_timer_handler_phys,
 						 "arch_timer", arch_timer_evt);
-			if (err)
+			if (arch_timer_use_secure && err)
 				free_percpu_irq(arch_timer_ppi[PHYS_SECURE_PPI],
 						arch_timer_evt);
 		}
@@ -613,8 +621,9 @@ out_free_irq:
 	if (arch_timer_use_virtual)
 		free_percpu_irq(arch_timer_ppi[VIRT_PPI], arch_timer_evt);
 	else {
-		free_percpu_irq(arch_timer_ppi[PHYS_SECURE_PPI],
-				arch_timer_evt);
+		if (arch_timer_use_secure)
+			free_percpu_irq(arch_timer_ppi[PHYS_SECURE_PPI],
+					arch_timer_evt);
 		if (arch_timer_ppi[PHYS_NONSECURE_PPI])
 			free_percpu_irq(arch_timer_ppi[PHYS_NONSECURE_PPI],
 					arch_timer_evt);
@@ -736,6 +745,9 @@ static void __init arch_timer_of_init(struct device_node *np)
 	arch_timer_detect_rate(NULL, np);
 
 	arch_timer_c3stop = !of_property_read_bool(np, "always-on");
+
+	arch_timer_use_secure = !of_property_read_bool(np,
+					"dont-use-secure-irq");
 
 	/*
 	 * If we cannot rely on firmware initializing the timer registers then

@@ -640,7 +640,7 @@ config SPI_DW_MMIO
 
 config SPI_BRCMSTB
 	tristate "Broadcom HIF SPI controller support"
-	depends on (ARM && ARCH_BRCMSTB) || BMIPS_GENERIC
+	depends on ARCH_BRCMSTB || BMIPS_GENERIC
 	default ARCH_BRCMSTB || BMIPS_GENERIC
 	help
 	  Say Y to enable support for SPI (serial) flash devices.
