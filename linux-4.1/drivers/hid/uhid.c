@@ -24,6 +24,7 @@
 #include <linux/spinlock.h>
 #include <linux/uhid.h>
 #include <linux/wait.h>
+#include "hid-ids.h"
 
 #define UHID_NAME	"uhid"
 #define UHID_BUFSIZE	32
@@ -350,6 +351,10 @@ static int uhid_hid_output_raw(struct hid_device *hid, __u8 *buf, size_t count,
 static int uhid_hid_output_report(struct hid_device *hid, __u8 *buf,
 				  size_t count)
 {
+	/* Nexus remote, 4.x kernel hack */
+	if (hid->vendor == USB_VENDOR_ID_GOOGLE && hid->product == USB_DEVICE_ID_NEXUS_REMOTE)
+		return uhid_hid_output_raw(hid, buf, count, HID_FEATURE_REPORT);
+
 	return uhid_hid_output_raw(hid, buf, count, HID_OUTPUT_REPORT);
 }
 

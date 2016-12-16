@@ -1024,8 +1024,10 @@ static int snd_atvr_mic_control(struct snd_atvr *atvr_snd, int on)
 		return -ENODEV;
 	}
 
-	ret = hid_hw_raw_request(hdev, buf[0], buf, sizeof(buf),
-			HID_FEATURE_REPORT, HID_REQ_SET_REPORT);
+	/* Work around linux-4.1 HID/UHID/BT limitation */
+	ret = hid_hw_output_report(hdev, buf, sizeof(buf));
+	/* ret = hid_hw_raw_request(hdev, buf[0], buf, sizeof(buf),
+			HID_FEATURE_REPORT, HID_REQ_SET_REPORT);*/
 	if (ret < 0) {
 		pr_err("%s:%d - ERROR HID raw report failed %d\n",
 			__func__, __LINE__, ret);
@@ -1581,7 +1583,6 @@ static int atvr_init(void)
 		pr_info("%s: succeeded creating misc device %s\n",
 			__func__, mSBC_dev_node.name);
 #endif
-
 	return ret;
 }
 

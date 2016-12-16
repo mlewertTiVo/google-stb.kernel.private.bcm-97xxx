@@ -1790,13 +1790,10 @@ static int bdc_gadget_ep_dequeue(struct usb_ep *_ep,
 		return -EINVAL;
 	}
 	ret = ep_dequeue(ep, req);
-	if (ret) {
+	if (ret)
 		ret = -EOPNOTSUPP;
-		goto err;
-	}
-	bdc_req_complete(ep, req, -ECONNRESET);
 
-err:
+	bdc_req_complete(ep, req, -ECONNRESET);
 	bdc_dbg_bd_list(bdc, ep);
 	spin_unlock_irqrestore(&bdc->lock, flags);
 

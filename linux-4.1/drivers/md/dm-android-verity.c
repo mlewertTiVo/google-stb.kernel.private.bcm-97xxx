@@ -267,10 +267,7 @@ static inline int validate_fec_header(struct fec_header *header, u64 offset)
 		le32_to_cpu(header->version) != FEC_VERSION ||
 		le32_to_cpu(header->size) != sizeof(struct fec_header) ||
 		le32_to_cpu(header->roots) == 0 ||
-		le32_to_cpu(header->roots) >= FEC_RSM ||
-		offset < le32_to_cpu(header->fec_size) ||
-		offset - le32_to_cpu(header->fec_size) !=
-		le64_to_cpu(header->inp_size))
+		le32_to_cpu(header->roots) >= FEC_RSM)
 		return -EINVAL;
 
 	return 0;
@@ -665,7 +662,7 @@ static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 {
 	dev_t uninitialized_var(dev);
 	struct android_metadata *metadata = NULL;
-	int err = 0, i, mode;
+	int err = 0, i, mode, retry=30;
 	char *key_id, *table_ptr, dummy, *target_device,
 	*verity_table_args[VERITY_TABLE_ARGS + 2 + VERITY_TABLE_OPT_FEC_ARGS];
 	/* One for specifying number of opt args and one for mode */
@@ -698,6 +695,11 @@ static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	target_device = argv[0];
 
 	dev = name_to_dev_t(target_device);
+	while (!dev && (retry-- > 0)) {
+		DMERR("no dev found for %s. Retrying.", target_device);
+		msleep(100);
+		dev = name_to_dev_t(target_device);
+	}
 	if (!dev) {
 		DMERR("no dev found for %s", target_device);
 		handle_error();
