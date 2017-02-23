@@ -592,12 +592,15 @@ static int __init xpt_dma_init(void)
 {
 	int ret = 0;
 
-	if (of_machine_is_compatible("brcm,bcm74371a0"))
+	if (of_machine_is_compatible("brcm,bcm74371a0") ||
+	    of_machine_is_compatible("brcm,bcm7278a0"))
 		return 0;
 
 	if (of_machine_is_compatible("brcm,bcm7268a0") ||
+	    of_machine_is_compatible("brcm,bcm7268b0") ||
 	    of_machine_is_compatible("brcm,bcm7260a0") ||
-	    of_machine_is_compatible("brcm,bcm7271a0"))
+	    of_machine_is_compatible("brcm,bcm7271a0") ||
+	    of_machine_is_compatible("brcm,bcm7271b0"))
 		has_memdma_mcpb = false;
 	else
 		has_memdma_mcpb = true;

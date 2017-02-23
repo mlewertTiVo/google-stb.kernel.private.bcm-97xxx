@@ -387,6 +387,7 @@ static void __init sdhci_disables(void *dtb)
 			fdt_nop_node(dtb, node);
 }
 
+#ifdef CONFIG_DT_BCM974XX
 static void __init cfe_die(char *fmt, ...)
 {
 	char msg[128];
@@ -442,7 +443,6 @@ no_cfe:
 	va_end(ap);
 }
 
-#ifdef CONFIG_DT_BCM974XX
 extern const char __dtb_bcm97425svmb_begin;
 extern const char __dtb_bcm97429svmb_begin;
 extern const char __dtb_bcm97435svmb_begin;

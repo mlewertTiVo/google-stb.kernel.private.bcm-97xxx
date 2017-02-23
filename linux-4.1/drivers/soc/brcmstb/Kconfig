@@ -55,7 +55,7 @@ config BRCMSTB_PM
 	bool "Support suspend/resume for STB platforms"
 	default y
 	depends on PM
-	depends on ARCH_BRCMSTB
+	depends on ARCH_BRCMSTB || BMIPS_GENERIC
 
 config BRCMSTB_PM_DEBUG
 	bool "Add debugfs interface for STB suspend/resume driver"
@@ -92,7 +92,7 @@ config BRCMSTB_WKTMR_SYSTIME_SYNC
 # Perform memory hashing before entering S3, using XPT DMA
 config BRCMSTB_XPT_HASH
 	select BRCMSTB_MEMORY_API
-	default y
+	default !BMIPS_GENERIC
 	bool
 
 config BRCMSTB_NEXUS_API

@@ -133,6 +133,24 @@ void brcmstb_waketmr_write_persistent_clock(struct timespec64 *ts)
 	wktmr_write(&now);
 }
 
+/* Use this wrapper if on MIPS */
+#ifdef CONFIG_MIPS
+void read_persistent_clock64(struct timespec64 *ts)
+{
+	/*
+	 * read_persistent_clock64 gets called before wake
+	 * timer can be initialized. If we are not initialized
+	 * yet, default to 0.
+	 */
+	if (wktimer.base) {
+		brcmstb_waketmr_read_persistent_clock(ts);
+	} else {
+		ts->tv_sec = 0;
+		ts->tv_nsec = 0;
+	}
+}
+#endif /* CONFIG_MIPS */
+
 static ssize_t brcmstb_waketmr_timeout_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -321,6 +339,45 @@ static const struct rtc_class_ops brcmstb_waketmr_ops = {
 };
 #endif /* CONFIG_RTC_CLASS */
 
+/*
+ * MIPS uses the Wake Timer as the clocksource instead of the
+ * MIPS counter/compare registers in each core because of issues
+ * synchronizing multiple counters on SMP systems.
+ */
+#ifdef CONFIG_MIPS
+
+static DEFINE_SPINLOCK(wktmr_lock);
+
+static cycle_t wktmr_cs_read(struct clocksource *cs)
+{
+	struct wktmr_time t;
+	unsigned long flags;
+
+	spin_lock_irqsave(&wktmr_lock, flags);
+	wktmr_read(&t);
+	spin_unlock_irqrestore(&wktmr_lock, flags);
+
+	return (t.sec * (cycle_t)WKTMR_FREQ) + t.pre;
+}
+
+static struct clocksource clocksource_wktmr = {
+	.name		= "wktmr",
+	.read		= wktmr_cs_read,
+	.mask		= CLOCKSOURCE_MASK(64),
+	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
+};
+
+static inline void __init init_wktmr_clocksource(void)
+{
+	clocksource_wktmr.rating = 250;
+	clocksource_register_hz(&clocksource_wktmr, WKTMR_FREQ);
+}
+#else
+static inline void __init init_wktmr_clocksource(void)
+{
+}
+#endif /* CONFIG_MIPS */
+
 static int __init brcmstb_waketmr_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -375,7 +432,11 @@ static int __init brcmstb_waketmr_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+#ifndef CONFIG_MIPS
 	register_persistent_clock(NULL, brcmstb_waketmr_read_persistent_clock);
+#endif
+
+	init_wktmr_clocksource();
 
 #ifdef CONFIG_BRCMSTB_WKTMR_SYSTIME_SYNC
 	/* Sync the wall clock to waketimer */
@@ -385,7 +446,6 @@ static int __init brcmstb_waketmr_probe(struct platform_device *pdev)
 		do_settimeofday64(&time);
 	}
 #endif
-
 	dev_info(dev, "registered, with irq %d\n", timer->irq);
 	return ret;
 }
@@ -399,7 +459,6 @@ static int brcmstb_waketmr_remove(struct platform_device *pdev)
 #ifdef CONFIG_RTC_CLASS
 	rtc_device_unregister(timer->rtc);
 #endif
-
 	return 0;
 }
 
