@@ -511,6 +511,7 @@ static int bcmgenet_mii_bus_reset(struct mii_bus *bus)
 	struct bcmgenet_priv *priv = netdev_priv(dev);
 	struct device_node *np = priv->mdio_dn;
 	struct device_node *child = NULL;
+	struct clk *clk = NULL;
 	u32 read_mask = 0;
 	int addr = 0;
 
@@ -523,6 +524,10 @@ static int bcmgenet_mii_bus_reset(struct mii_bus *bus)
 				continue;
 
 			read_mask |= 1 << addr;
+
+			clk = of_clk_get(child, 0);
+			if (!IS_ERR(clk))
+				clk_prepare_enable(clk);
 		}
 	}
 

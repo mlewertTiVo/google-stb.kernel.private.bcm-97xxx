@@ -9,11 +9,13 @@
 #include <linux/of_address.h>
 #include <linux/syscore_ops.h>
 
-#define CPU_CREDIT_REG_OFFSET 0x184
+#define B15_CPU_CREDIT_REG_OFFSET	0x184
+#define B53_CPU_CREDIT_REG_OFFSET	0x0b0
 #define  CPU_CREDIT_REG_MCPx_WR_PAIRING_EN_MASK 0x70000000
 
 static void __iomem *cpubiuctrl_base;
 static unsigned int mcp_wr_pairing_en;
+static unsigned int cpu_credit_reg_offset;
 
 /*
  * HW7445-1920: On affected chips, disable MCP write pairing to improve
@@ -26,15 +28,15 @@ static int __init mcp_write_pairing_set(void)
 	if (!cpubiuctrl_base)
 		return -1;
 
-	creds = __raw_readl(cpubiuctrl_base + CPU_CREDIT_REG_OFFSET);
+	creds = __raw_readl(cpubiuctrl_base + cpu_credit_reg_offset);
 	if (mcp_wr_pairing_en) {
 		pr_info("MCP: Enabling write pairing\n");
 		__raw_writel(creds | CPU_CREDIT_REG_MCPx_WR_PAIRING_EN_MASK,
-			     cpubiuctrl_base + CPU_CREDIT_REG_OFFSET);
+			     cpubiuctrl_base + cpu_credit_reg_offset);
 	} else if (creds & CPU_CREDIT_REG_MCPx_WR_PAIRING_EN_MASK) {
 		pr_info("MCP: Disabling write pairing\n");
 		__raw_writel(creds & ~CPU_CREDIT_REG_MCPx_WR_PAIRING_EN_MASK,
-				cpubiuctrl_base + CPU_CREDIT_REG_OFFSET);
+				cpubiuctrl_base + cpu_credit_reg_offset);
 	} else {
 		pr_info("MCP: Write pairing already disabled\n");
 	}
@@ -44,7 +46,7 @@ static int __init mcp_write_pairing_set(void)
 
 static void __init setup_hifcpubiuctrl_regs(void)
 {
-	struct device_node *np;
+	struct device_node *np, *cpu_dn;
 
 	np = of_find_compatible_node(NULL, NULL, "brcm,brcmstb-cpu-biu-ctrl");
 	if (!np)
@@ -57,6 +59,20 @@ static void __init setup_hifcpubiuctrl_regs(void)
 	mcp_wr_pairing_en = of_property_read_bool(np, "brcm,write-pairing");
 
 	of_node_put(np);
+
+	cpu_dn = of_get_cpu_node(0, NULL);
+	if (!cpu_dn) {
+		pr_err("failed to obtain CPU device node\n");
+		return;
+	}
+
+	if (of_device_is_compatible(cpu_dn, "brcm,brahma-b15"))
+		cpu_credit_reg_offset = B15_CPU_CREDIT_REG_OFFSET;
+	else if (of_device_is_compatible(cpu_dn, "brcm,brahma-b53"))
+		cpu_credit_reg_offset = B53_CPU_CREDIT_REG_OFFSET;
+	else
+		pr_err("unsupported CPU\n");
+	of_node_put(cpu_dn);
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -66,7 +82,7 @@ static int brcmstb_cpu_credit_reg_suspend(void)
 {
 	if (cpubiuctrl_base)
 		cpu_credit_reg_dump =
-			__raw_readl(cpubiuctrl_base + CPU_CREDIT_REG_OFFSET);
+			__raw_readl(cpubiuctrl_base + cpu_credit_reg_offset);
 	return 0;
 }
 
@@ -74,7 +90,7 @@ static void brcmstb_cpu_credit_reg_resume(void)
 {
 	if (cpubiuctrl_base)
 		__raw_writel(cpu_credit_reg_dump,
-				cpubiuctrl_base + CPU_CREDIT_REG_OFFSET);
+				cpubiuctrl_base + cpu_credit_reg_offset);
 }
 
 static struct syscore_ops brcmstb_cpu_credit_syscore_ops = {
