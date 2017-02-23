@@ -212,7 +212,7 @@ int __init brcmstb_l2_intc_of_init(struct device_node *np,
 	if (init_params->cpu_clear >= 0) {
 		ct->regs.ack = init_params->cpu_clear;
 		ct->chip.irq_ack = irq_gc_ack_set_bit;
-		ct->chip.irq_mask_ack = irq_gc_mask_disable_reg_and_ack;
+		ct->chip.irq_mask_ack = irq_gc_mask_disable_and_ack_set;
 	}
 	else {
 		/* No Ack - but still slightly more efficient to define this */
@@ -236,6 +236,7 @@ int __init brcmstb_l2_intc_of_init(struct device_node *np,
 		 */
 		data->gc->wake_enabled = 0xffffffff;
 		ct->chip.irq_set_wake = irq_gc_set_wake;
+		enable_irq_wake(parent_irq);
 	}
 
 	pr_info("registered L2 intc (mem: 0x%p, parent irq: %d)\n",

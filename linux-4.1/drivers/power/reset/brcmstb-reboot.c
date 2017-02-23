@@ -33,8 +33,8 @@
 
 /* Other AON Register Definitions can be found in 'mach-bcm/aon_defs.h'*/
 #define AON_REG_ANDROID_RESTART_CAUSE	0x24
-#define AON_REG_ANDROID_RESTART_TIME	0x28
-#define AON_REG_ANDROID_RESTART_TIME_N	0x2C
+#define AON_REG_ANDROID_RESTART_TIME	0x10
+#define AON_REG_ANDROID_RESTART_TIME_N	0x14
 
 static struct regmap *regmap;
 static u32 rst_src_en;
