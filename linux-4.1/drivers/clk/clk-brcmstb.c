@@ -405,6 +405,7 @@ static void __init of_brcmstb_clk_gate_setup(struct device_node *node)
 	int ret;
 	bool read_only = false;
 	bool inhibit_disable = false;
+	unsigned long flags = 0;
 
 	of_property_read_string(node, "clock-output-names", &clk_name);
 	parent_name = of_clk_get_parent_name(node, 0);
@@ -430,7 +431,10 @@ static void __init of_brcmstb_clk_gate_setup(struct device_node *node)
 	if (of_property_read_bool(node, "brcm,inhibit-disable"))
 		inhibit_disable = true;
 
-	clk = brcm_clk_gate_register(NULL, clk_name, parent_name, 0, reg,
+	if (of_property_read_bool(node, "brcm,set-rate-parent"))
+		flags |= CLK_SET_RATE_PARENT;
+
+	clk = brcm_clk_gate_register(NULL, clk_name, parent_name, flags, reg,
 				     (u8) bit_idx, clk_gate_flags, delay,
 				     &lock, read_only, inhibit_disable);
 	if (!IS_ERR(clk)) {
