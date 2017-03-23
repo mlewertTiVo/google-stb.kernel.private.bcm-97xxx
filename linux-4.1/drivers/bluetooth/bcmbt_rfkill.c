@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Broadcom
+ * Copyright (C) 2016-2017 Broadcom
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -41,6 +41,7 @@
 #define BCMBT_RFKILL_UNUSED_GPIO       (-1)
 
 struct bcmbt_rfkill_data {
+	int post_delay;
 	int vreg_gpio;
 	int n_reset_gpio;
 	struct rfkill *rfkill;
@@ -78,6 +79,8 @@ static int bcmbt_rfkill_set_power(void *pdata, bool blocked)
 		(vreg_valid) ? gpio_get_value(vreg_gpio) : -1,
 		(n_reset_valid) ? gpio_get_value(n_reset_gpio) : -1);
 
+	msleep(data->post_delay); /* Give BT chip a chance to settle */
+
 	return 0;
 }
 
@@ -93,6 +96,12 @@ static int bcmbt_rfkill_probe(struct platform_device *pdev)
 	data = devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
+
+	if (of_property_read_u32(pdev->dev.of_node,
+			"brcm,post-delay", &data->post_delay)) {
+		dev_warn(&pdev->dev, "Using default post-delay\n");
+		data->post_delay = 10;
+	}
 
 	data->vreg_gpio = of_get_named_gpio(pdev->dev.of_node,
 			"brcm,vreg-gpio", 0);

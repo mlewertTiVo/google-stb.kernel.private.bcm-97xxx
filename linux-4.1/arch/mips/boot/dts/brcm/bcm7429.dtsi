@@ -272,6 +272,9 @@
 			reg = <0x700000 0x11c88>;
 			interrupts = <15>, <16>;
 			interrupt-parent = <&periph_intc>;
+			interrupts-extended = <&periph_intc 15>,
+					<&periph_intc 16>,
+					<&aon_pm_l2_intc 7>;
 			status = "disabled";
 
 			mdio@e14 {
@@ -299,9 +302,12 @@
 			reg = <0x720000 0x11c88>;
 			interrupts = <17>, <18>;
 			interrupt-parent = <&periph_intc>;
+			interrupts-extended = <&periph_intc 17>,
+					<&periph_intc 18>,
+					<&aon_pm_l2_intc 6>;
 			status = "disabled";
 
-			mdio@e14 {
+			mdio1: mdio@e14 {
 				compatible = "brcm,genet-mdio-v3";
 				#address-cells = <0x1>;
 				#size-cells = <0x0>;
@@ -500,6 +506,16 @@
 			no-1-8-v;
 			status = "disabled";
 		};
+		brcm_pmx_general: pimux@40480 {
+			compatible = "brcm,7429-padconf", "pinctrl-single";
+			reg = <0x404080 0x00000018>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			pinctrl-single,bit-per-mux;
+			pinctrl-single,register-width = <32>;
+			pinctrl-single,function-mask = <0x1>;
+			status = "disabled";
+		};
 		brcm_pmx_core: pinmux@404100 {
 			compatible = "brcm,7429-padconf", "pinctrl-single";
 			reg = <0x404100 0x00000074>;
@@ -512,12 +528,12 @@
 		};
 		brcm_pmx_hif_emmc_pinctrl: pinmux@412428 {
 			compatible = "brcm,7429-padconf", "pinctrl-single";
-			reg = <0x412428 0x00000100>;
+			reg = <0x412428 0x4>;
 			#address-cells = <1>;
 			#size-cells = <0>;
 			pinctrl-single,bit-per-mux;
 			pinctrl-single,register-width = <32>;
-			pinctrl-single,function-mask = <0xffffffff>;
+			pinctrl-single,function-mask = <0x3>;
 			status = "disabled";
 		};
 		aon_ctrl: aon-ctrl@408000 {
