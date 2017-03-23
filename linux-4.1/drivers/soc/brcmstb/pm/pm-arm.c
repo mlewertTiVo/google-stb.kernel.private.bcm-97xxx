@@ -1050,10 +1050,13 @@ static int brcmstb_pm_standby(bool deep_standby)
 	if (brcmstb_pm_handshake())
 		return -EIO;
 
-	if (deep_standby)
+	if (deep_standby) {
+		/* Save DTU registers for S3 only. SAGE won't let us for S2. */
+		dtu_save();
 		ret = brcmstb_pm_s3();
-	else
+	} else {
 		ret = brcmstb_pm_s2();
+	}
 	if (ret)
 		pr_err("%s: standby failed\n", __func__);
 

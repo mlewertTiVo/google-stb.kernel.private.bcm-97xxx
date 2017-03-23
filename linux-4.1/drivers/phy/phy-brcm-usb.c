@@ -23,6 +23,7 @@
 #include <linux/phy/phy.h>
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
+#include <linux/slab.h>
 #include <linux/soc/brcmstb/brcmstb.h>
 
 #include "usb-brcm-common-init.h"
@@ -119,6 +120,49 @@ static struct phy *brcm_usb_phy_xlate(struct device *dev,
 	return data->phys[args->args[0]].phy;
 }
 
+/*
+ * Fix the case where the #phy-cells in the Device Tree node is
+ * incorrectly set to 0 instead of 1. This happens with versions of
+ * BOLT <= v1.18
+ */
+static int fix_phy_cells(struct device *dev, struct device_node *dn)
+{
+	struct property *new;
+	u32 count;
+	const char phy_cells[] = "#phy-cells";
+
+	if (of_property_read_u32(dn, phy_cells, &count))
+		return 1;
+
+	if (count == 1)
+		return 0;
+
+	dev_info(dev, "Fixing incorrect #phy-cells in Device Tree node\n");
+	new = kzalloc(sizeof(*new), GFP_KERNEL);
+	if (!new)
+		return 1;
+
+	new->name = kstrdup(phy_cells, GFP_KERNEL);
+	if (!new->name)
+		goto cleanup;
+
+	new->length = sizeof(u32);
+	new->value = kmalloc(new->length, GFP_KERNEL);
+	if (!new->value)
+		goto cleanup;
+
+	*((u32 *)new->value) = cpu_to_be32(1);
+	of_update_property(dn, new);
+	return 0;
+
+cleanup:
+	kfree(new->name);
+	kfree(new->value);
+	kfree(new);
+	return 1;
+}
+
+
 static int brcm_usb_phy_probe(struct platform_device *pdev)
 {
 	struct resource *res;
@@ -132,6 +176,8 @@ static int brcm_usb_phy_probe(struct platform_device *pdev)
 	char err_msg_ioremap[] = "can't map register space\n";
 
 	dev_dbg(&pdev->dev, "brcm_usb_phy_probe\n");
+	fix_phy_cells(dev, dn);
+
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
