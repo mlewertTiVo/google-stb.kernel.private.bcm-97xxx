@@ -36,6 +36,8 @@
 #define AON_REG_ANDROID_RESTART_TIME	0x10
 #define AON_REG_ANDROID_RESTART_TIME_N	0x14
 
+#define RESTART_CAUSE_QUIESCENT_MARKER 0x100
+
 static struct regmap *regmap;
 static u32 rst_src_en;
 static u32 sw_mstr_rst;
@@ -68,6 +70,7 @@ static int brcmstb_reboot_handler(struct notifier_block *this,
 {
 	u32 val;
 	char *command = cmd;
+	char *quiescent = NULL;
 
 	if (mode != SYS_RESTART)
 		return NOTIFY_DONE;
@@ -78,17 +81,24 @@ static int brcmstb_reboot_handler(struct notifier_block *this,
 		* If there is an error in writing to sw master reset reg,
 		* then we will likely need power-on-reset and the AON SRAM
 		* will be cleared as part of the power-on-reset.*/
+		if (command != NULL) {
+			quiescent = strstr(command, "quiescent");
+		}
 		if (command != NULL && command[0] != 0) {
 			/* Save first letter of the reboot command argument to
 			 * distinguish different reboot reason. Expected 'cmd':
 			 *   - 'bootloader': Boot into bootloader
 			 *   - 'recovery': Boot into recovery mode
-			 *   - 'system' or '': Boot into normal Android mode*/
+			 *   - otherwise: Boot into normal Android mode*/
 			val = command[0];
 			pr_info("brcmstb_reboot: cmd='%s', val=%u\n", command, val);
 		} else {
 			val = 0;
 			pr_info("brcmstb_reboot: empty cmd string\n");
+		}
+		if (quiescent != NULL) {
+			pr_info("brcmstb_reboot: quiescent mode requested\n");
+			val |= RESTART_CAUSE_QUIESCENT_MARKER;
 		}
 		writel(val, aon_sram_base + AON_REG_ANDROID_RESTART_CAUSE);
 #ifdef CONFIG_BRCMSTB_WKTMR_SYSTIME_SYNC
