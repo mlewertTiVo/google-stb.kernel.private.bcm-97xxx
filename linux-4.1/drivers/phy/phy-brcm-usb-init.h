@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2016 Broadcom
+ * Copyright (C) 2014-2017 Broadcom
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,19 @@
 #define USB_CTLR_DEVICE_DUAL 2
 #define USB_CTLR_DEVICE_TYPEC_PD 3
 
-struct  brcm_usb_common_init_params {
+struct  brcm_usb_init_params;
+
+struct brcm_usb_init_ops {
+	void (*init_ipp)(struct brcm_usb_init_params *params);
+	void (*init_common)(struct brcm_usb_init_params *params);
+	void (*init_eohci)(struct brcm_usb_init_params *params);
+	void (*init_xhci)(struct brcm_usb_init_params *params);
+	void (*uninit_common)(struct brcm_usb_init_params *params);
+	void (*uninit_eohci)(struct brcm_usb_init_params *params);
+	void (*uninit_xhci)(struct brcm_usb_init_params *params);
+};
+
+struct  brcm_usb_init_params {
 	void __iomem *ctrl_regs;
 	void __iomem *xhci_ec_regs;
 	int ioc;
@@ -43,16 +55,56 @@ struct  brcm_usb_common_init_params {
 	uint32_t family_id;
 	uint32_t product_id;
 	int selected_family;
+	const char *family_name;
 	const uint32_t *usb_reg_bits_map;
+	const struct brcm_usb_init_ops *ops;
 };
 
-void brcm_usb_set_family_map(struct brcm_usb_common_init_params *params);
-void brcm_usb_init_ipp(struct  brcm_usb_common_init_params *params);
-void brcm_usb_init_common(struct  brcm_usb_common_init_params *params);
-void brcm_usb_init_eohci(struct  brcm_usb_common_init_params *params);
-void brcm_usb_init_xhci(struct  brcm_usb_common_init_params *params);
-void brcm_usb_uninit_common(struct  brcm_usb_common_init_params *params);
-void brcm_usb_uninit_eohci(struct  brcm_usb_common_init_params *params);
-void brcm_usb_uninit_xhci(struct  brcm_usb_common_init_params *params);
+void brcm_usb_set_family_map(struct brcm_usb_init_params *params);
+int brcm_usb_init_get_dual_select(struct brcm_usb_init_params *params);
+void brcm_usb_init_set_dual_select(struct brcm_usb_init_params *params,
+				int mode);
+
+static inline void brcm_usb_init_ipp(struct brcm_usb_init_params *ini)
+{
+	if (ini->ops->init_ipp)
+		ini->ops->init_ipp(ini);
+}
+
+static inline void brcm_usb_init_common(struct brcm_usb_init_params *ini)
+{
+	if (ini->ops->init_common)
+		ini->ops->init_common(ini);
+}
+
+static inline void brcm_usb_init_eohci(struct brcm_usb_init_params *ini)
+{
+	if (ini->ops->init_eohci)
+		ini->ops->init_eohci(ini);
+}
+
+static inline void brcm_usb_init_xhci(struct brcm_usb_init_params *ini)
+{
+	if (ini->ops->init_xhci)
+		ini->ops->init_xhci(ini);
+}
+
+static inline void brcm_usb_uninit_common(struct brcm_usb_init_params *ini)
+{
+	if (ini->ops->uninit_common)
+		ini->ops->uninit_common(ini);
+}
+
+static inline void brcm_usb_uninit_eohci(struct brcm_usb_init_params *ini)
+{
+	if (ini->ops->uninit_eohci)
+		ini->ops->uninit_eohci(ini);
+}
+
+static inline void brcm_usb_uninit_xhci(struct brcm_usb_init_params *ini)
+{
+	if (ini->ops->uninit_xhci)
+		ini->ops->uninit_xhci(ini);
+}
 
 #endif /* _USB_BRCM_COMMON_INIT_H */
