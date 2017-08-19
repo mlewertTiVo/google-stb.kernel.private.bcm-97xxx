@@ -1416,15 +1416,20 @@ static int atvr_raw_event(struct hid_device *hdev, struct hid_report *report,
 		 * and over the air bandwidth.
 		 */
 		if (data[2] & KEYCODE_PRESENT_IN_AUDIO_PACKET_FLAG) {
-			u8 key_data[3];
+			u8 *key_data = hid_alloc_report_buf(report, GFP_KERNEL);
+			if (!key_data) {
+				pr_err("%s: failed to allocate report buffer\n",
+					__func__);
+				return 0;
+			}
 			key_data[0] = INPUT_REPORT_ID;
 			key_data[1] = data[1]; /* low byte */
 			key_data[2] = data[2]; /* high byte */
 			key_data[2] &= ~KEYCODE_PRESENT_IN_AUDIO_PACKET_FLAG;
-			hid_report_raw_event(hdev, 0, key_data,
-					     sizeof(key_data), 0);
+			hid_report_raw_event(hdev, 0, key_data, 3, 0);
 			pr_info("%s: generated hid keycode 0x%02x%02x\n",
 				__func__, key_data[2], key_data[1]);
+			kfree(key_data);
 		}
 
 		/* send the audio part to the alsa audio decoder for mSBC */

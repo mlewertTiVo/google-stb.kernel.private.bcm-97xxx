@@ -65,6 +65,19 @@ config BRCMSTB_MAP_MEM_TO_S2
 	depends on BRCMSTB_PM
 	default n
 
+config BRCMSTB_AUTOMAP_BMEM
+	bool "Enable Auto Mapping of BMEM regions"
+	default y
+	depends on ARM64 && BRCMSTB_BMEM
+	select PAGE_AUTOMAP
+	help
+	  If BMEM is direct mapped by the kernel the ARM64 may speculatively
+	  fetch into secured regions.  This option allows BMEM regions to
+	  remain unmapped unless a user space process maps pages from a BMEM
+	  region, in which case those pages will be automatically direct
+	  mapped into the kernel to allow O_DIRECT to be used with those
+	  pages.
+
 config BRCMSTB_PM
 	bool "Support suspend/resume for STB platforms"
 	default y
@@ -114,6 +127,13 @@ config BRCMSTB_NEXUS_API
 	help
 	   Provides APIs for Nexus kernel-mode driver to facilitate
 	   sharing of resources: IRQs, GPIOs, Pinmuxing etc.
+
+config BRCMSTB_BBSI
+	tristate "Support for BBSI chips"
+	default y
+	depends on SPI_MASTER
+	help
+	    Provides APIs for accessing BBSI devices over SPI.
 
 endif # SOC_BRCMSTB
 
