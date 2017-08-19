@@ -37,6 +37,7 @@
 #define AON_REG_ANDROID_RESTART_TIME_N	0x14
 
 #define RESTART_CAUSE_QUIESCENT_MARKER 0x100
+#define RESTART_CAUSE_DMVERITY_EIO_MARKER 0x200
 
 static struct regmap *regmap;
 static u32 rst_src_en;
@@ -71,6 +72,7 @@ static int brcmstb_reboot_handler(struct notifier_block *this,
 	u32 val;
 	char *command = cmd;
 	char *quiescent = NULL;
+	char *dmverity_corrupt = NULL;
 
 	if (mode != SYS_RESTART)
 		return NOTIFY_DONE;
@@ -83,6 +85,7 @@ static int brcmstb_reboot_handler(struct notifier_block *this,
 		* will be cleared as part of the power-on-reset.*/
 		if (command != NULL) {
 			quiescent = strstr(command, "quiescent");
+			dmverity_corrupt = strstr(command, "dm-verity device corrupted");
 		}
 		if (command != NULL && command[0] != 0) {
 			/* Save first letter of the reboot command argument to
@@ -99,6 +102,10 @@ static int brcmstb_reboot_handler(struct notifier_block *this,
 		if (quiescent != NULL) {
 			pr_info("brcmstb_reboot: quiescent mode requested\n");
 			val |= RESTART_CAUSE_QUIESCENT_MARKER;
+		}
+		if (dmverity_corrupt != NULL) {
+			pr_info("brcmstb_reboot: dm-verity device corrupted reported\n");
+			val |= RESTART_CAUSE_DMVERITY_EIO_MARKER;
 		}
 		writel(val, aon_sram_base + AON_REG_ANDROID_RESTART_CAUSE);
 #ifdef CONFIG_BRCMSTB_WKTMR_SYSTIME_SYNC
