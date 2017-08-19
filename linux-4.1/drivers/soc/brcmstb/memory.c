@@ -32,6 +32,7 @@
 #include <linux/brcmstb/bmem.h>
 #include <linux/brcmstb/cma_driver.h>
 #include <linux/brcmstb/memory_api.h>
+#include <asm/tlbflush.h>
 
 /* -------------------- Constants -------------------- */
 
@@ -78,6 +79,10 @@ static struct brcmstb_reserved_memory reserved_init;
 
 static phys_addr_t pmem_addr;
 static phys_addr_t pmem_size;
+
+#ifdef CONFIG_PAGE_AUTOMAP
+static spinlock_t automap_lock = __SPIN_LOCK_UNLOCKED(automap_lock);
+#endif
 
 /* -------------------- Functions -------------------- */
 
@@ -616,6 +621,69 @@ static int populate_reserved(struct brcmstb_memory *mem)
 }
 #endif
 
+static int __init brcmstb_memory_set_range(phys_addr_t start, phys_addr_t end,
+					   int (*setup)(phys_addr_t start,
+							phys_addr_t size));
+
+static int __init brcmstb_memory_region_check(phys_addr_t *start,
+					      phys_addr_t *size,
+					      phys_addr_t *end,
+					      phys_addr_t reg_start,
+					      phys_addr_t reg_size,
+					      int (*setup)(phys_addr_t start,
+						           phys_addr_t size))
+{
+	/* range is entirely below the reserved region */
+	if (*end <= reg_start)
+		return 1;
+
+	/* range is entirely above the reserved region */
+	if (*start >= reg_start + reg_size)
+		return 0;
+
+	if (*start < reg_start) {
+		if (*end <= reg_start + reg_size) {
+			/* end of range overlaps reservation */
+			pr_debug("%s: Reduced default region %pa@%pa\n",
+					__func__, size, start);
+
+			*end = reg_start;
+			*size = *end - *start;
+			pr_debug("%s: to %pa@%pa\n",
+					__func__, size, start);
+			return 1;
+		}
+
+		/* range contains the reserved region */
+		pr_debug("%s: Split default region %pa@%pa\n",
+			 __func__, size, start);
+
+		*size = reg_start - *start;
+		pr_debug("%s: into %pa@%pa\n",
+			 __func__, size, start);
+		brcmstb_memory_set_range(*start, reg_start, setup);
+
+		*start = reg_start + reg_size;
+		*size = *end - *start;
+		pr_debug("%s: and %pa@%pa\n", __func__, size, start);
+	} else if (*end > reg_start + reg_size) {
+		/* start of range overlaps reservation */
+		pr_debug("%s: Reduced default region %pa@%pa\n",
+			 __func__, size, start);
+		*start = reg_start + reg_size;
+		*size = *end - *start;
+		pr_debug("%s: to %pa@%pa\n", __func__, &size, &start);
+	} else {
+		/* range is contained by the reserved region */
+		pr_debug("%s: Default region %pa@%pa is reserved\n",
+			 __func__, size, start);
+
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /*
  * brcmstb_memory_set_range() - validate and set middleware memory range
  * @start: the physical address of the start of a candidate range
@@ -639,64 +707,52 @@ static int __init brcmstb_memory_set_range(phys_addr_t start, phys_addr_t end,
 	const phys_addr_t alignment =
 		PAGE_SIZE << max(MAX_ORDER - 1, pageblock_order);
 	phys_addr_t temp, size = end - start;
-	int i;
+	int i, ret;
 
 	for (i = 0; i < memblock.reserved.cnt; i++) {
 		struct memblock_region *region = &memblock.reserved.regions[i];
 
-		/* range is entirely below the reserved region */
-		if (end <= region->base)
-			break;
-
-		/* range is entirely above the reserved region */
-		if (start >= region->base + region->size)
+		ret = brcmstb_memory_region_check(&start, &size, &end,
+						  region->base, region->size,
+						  setup);
+		if (ret == 0)
 			continue;
 
-		if (start < region->base) {
-			if (end <= region->base + region->size) {
-				/* end of range overlaps reservation */
-				pr_debug("%s: Reduced default region %pa@%pa\n",
-						__func__, &size, &start);
+		if (ret == 1)
+			break;
 
-				end = region->base;
-				size = end - start;
-				pr_debug("%s: to %pa@%pa\n",
-						__func__, &size, &start);
-				break;
-			}
+		if (ret < 0)
+			return ret;
 
-			/* range contains the reserved region */
-			pr_debug("%s: Split default region %pa@%pa\n",
-				 __func__, &size, &start);
+	}
 
-			size = region->base - start;
-			pr_debug("%s: into %pa@%pa\n",
-				 __func__, &size, &start);
-			brcmstb_memory_set_range(start, region->base, setup);
+	/* Also range check reserved-memory 'no-map' entries from being
+	 * possible candidates
+	 */
+	for (i = 0; i < __reserved_mem_get_count(); i++) {
+		struct reserved_mem *rmem = __reserved_mem_get_entry(i);
 
-			start = region->base + region->size;
-			size = end - start;
-			pr_debug("%s: and %pa@%pa\n", __func__, &size, &start);
-		} else if (end > region->base + region->size) {
-			/* start of range overlaps reservation */
-			pr_debug("%s: Reduced default region %pa@%pa\n",
-				 __func__, &size, &start);
-			start = region->base + region->size;
-			size = end - start;
-			pr_debug("%s: to %pa@%pa\n", __func__, &size, &start);
-		} else {
-			/* range is contained by the reserved region */
-			pr_debug("%s: Default region %pa@%pa is reserved\n",
-				 __func__, &size, &start);
+		if (memblock_is_map_memory(rmem->base))
+			continue;
 
-			return -EINVAL;
-		}
+		ret = brcmstb_memory_region_check(&start, &size, &end,
+						  rmem->base, rmem->size,
+						  setup);
+		if (ret == 0)
+			continue;
+
+		if (ret == 1)
+			break;
+
+		if (ret < 0)
+			return ret;
+
 	}
 
 	/* Exclude reserved-memory 'no-map' entries from being possible
 	 * candidates
 	 */
-	if (!memblock_is_map_memory(start)) {
+	if (!IS_ENABLED(CONFIG_MIPS) && !memblock_is_map_memory(start)) {
 		pr_debug("%s: Cannot add nomap %pa%p@\n",
 			 __func__, &start, &end);
 		return -EINVAL;
@@ -1005,6 +1061,144 @@ int brcmstb_memory_get(struct brcmstb_memory *mem)
 }
 EXPORT_SYMBOL(brcmstb_memory_get);
 
+#ifdef CONFIG_PAGE_AUTOMAP
+static void map(phys_addr_t start, phys_addr_t size)
+{
+	unsigned long va_start = (unsigned long)__va(start);
+	unsigned long va_end = va_start + size;
+	struct page *page = phys_to_page(start);
+
+	pr_debug("AutoMap kernel pages 0x%llx size = 0x%llx\n", start, size);
+
+	while (va_start != va_end) {
+		map_kernel_range_noflush(va_start, PAGE_SIZE,
+					 PAGE_KERNEL, &page);
+		va_start += PAGE_SIZE;
+		page++;
+	}
+
+	flush_tlb_kernel_range(va_start, va_start + (unsigned long)size);
+}
+
+static void unmap(phys_addr_t start, phys_addr_t size)
+{
+	unsigned long va_start = (unsigned long)__va(start);
+
+	pr_debug("AutoUnmap kernel pages 0x%llx size = 0x%llx\n", start, size);
+	unmap_kernel_range_noflush(va_start, (unsigned long)size);
+	flush_tlb_kernel_range(va_start, va_start + (unsigned long)size);
+}
+
+static void inc_automap_pages(struct page *page, int nr)
+{
+	phys_addr_t end, start = 0;
+	int count;
+
+	spin_lock(&automap_lock);
+	while (nr--) {
+		if (unlikely(PageAutoMap(page))) {
+			count = atomic_inc_return(&page->_count);
+			if (count == 2) {
+				/* Needs to be mapped */
+				if (!start)
+					start = page_to_phys(page);
+				end = page_to_phys(page);
+			} else if (start) {
+				map(start, end + PAGE_SIZE - start);
+				start = 0;
+			}
+		} else if (start) {
+			map(start, end + PAGE_SIZE - start);
+			start = 0;
+		}
+		page++;
+	}
+	if (start)
+		map(start, end + PAGE_SIZE - start);
+	spin_unlock(&automap_lock);
+}
+
+static void dec_automap_pages(struct page *page, int nr)
+{
+	phys_addr_t end, start = 0;
+	int count;
+
+	spin_lock(&automap_lock);
+	while (nr--) {
+		if (unlikely(PageAutoMap(page))) {
+			count = atomic_dec_return(&page->_count);
+			if (count == 1) {
+				/* Needs to be unmapped */
+				if (!start)
+					start = page_to_phys(page);
+				end = page_to_phys(page);
+			} else if (start) {
+				unmap(start, end + PAGE_SIZE - start);
+				start = 0;
+			}
+		} else if (start) {
+			unmap(start, end + PAGE_SIZE - start);
+			start = 0;
+		}
+		page++;
+	}
+	if (start)
+		unmap(start, end + PAGE_SIZE - start);
+	spin_unlock(&automap_lock);
+}
+
+int track_pfn_remap(struct vm_area_struct *vma, pgprot_t *prot,
+		    unsigned long pfn, unsigned long addr,
+		    unsigned long size)
+{
+	if (pfn_valid(pfn))
+		inc_automap_pages(pfn_to_page(pfn), size >> PAGE_SHIFT);
+	return 0;
+}
+
+int track_pfn_insert(struct vm_area_struct *vma, pgprot_t *prot,
+		    unsigned long pfn)
+{
+	if (pfn_valid(pfn))
+		inc_automap_pages(pfn_to_page(pfn), 1);
+	return 0;
+}
+
+int track_pfn_copy(struct vm_area_struct *vma)
+{
+	unsigned long pfn;
+
+	if (follow_pfn(vma, vma->vm_start, &pfn)) {
+		WARN_ON_ONCE(1);
+		return 0;
+	}
+
+	if (pfn_valid(pfn))
+		inc_automap_pages(pfn_to_page(pfn),
+				  (vma->vm_end - vma->vm_start) >> PAGE_SHIFT);
+	return 0;
+}
+
+void untrack_pfn(struct vm_area_struct *vma, unsigned long pfn,
+		 unsigned long size)
+{
+	if (!pfn && !size) {
+		if (!vma) {
+			WARN_ON_ONCE(1);
+			return;
+		}
+
+		if (follow_pfn(vma, vma->vm_start, &pfn))
+			WARN_ON_ONCE(1);
+
+		size = vma->vm_end - vma->vm_start;
+	}
+
+	if (pfn_valid(pfn))
+		dec_automap_pages(pfn_to_page(pfn), size >> PAGE_SHIFT);
+}
+#endif /* CONFIG_PAGE_AUTOMAP */
+
 static int pte_callback(pte_t *pte, unsigned long x, unsigned long y,
 			struct mm_walk *walk)
 {
@@ -1034,8 +1228,8 @@ static void *page_to_virt_contig(const struct page *page, unsigned int pg_cnt,
 		const struct page *cur_pg = pfn_to_page(pfn);
 		phys_addr_t pa;
 
-		/* Verify range is in low memory only */
-		if (PageHighMem(cur_pg))
+		/* Verify range is in mapped low memory only */
+		if (PageHighMem(cur_pg) || PageAutoMap(cur_pg))
 			return NULL;
 
 		/* Must be mapped */
