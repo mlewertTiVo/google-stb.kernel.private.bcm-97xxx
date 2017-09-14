@@ -36,6 +36,8 @@
 #define AON_REG_ANDROID_RESTART_TIME	0x10
 #define AON_REG_ANDROID_RESTART_TIME_N	0x14
 
+#define RESTART_CAUSE_DMVERITY_EIO_MARKER 0x200
+
 static struct regmap *regmap;
 static u32 rst_src_en;
 static u32 sw_mstr_rst;
@@ -68,6 +70,7 @@ static int brcmstb_reboot_handler(struct notifier_block *this,
 {
 	u32 val;
 	char *command = cmd;
+	char *dmverity_corrupt = NULL;
 
 	if (mode != SYS_RESTART)
 		return NOTIFY_DONE;
@@ -78,6 +81,9 @@ static int brcmstb_reboot_handler(struct notifier_block *this,
 		* If there is an error in writing to sw master reset reg,
 		* then we will likely need power-on-reset and the AON SRAM
 		* will be cleared as part of the power-on-reset.*/
+		if (command != NULL) {
+			dmverity_corrupt = strstr(command, "dm-verity device corrupted");
+		}
 		if (command != NULL && command[0] != 0) {
 			/* Save first letter of the reboot command argument to
 			 * distinguish different reboot reason. Expected 'cmd':
@@ -89,6 +95,10 @@ static int brcmstb_reboot_handler(struct notifier_block *this,
 		} else {
 			val = 0;
 			pr_info("brcmstb_reboot: empty cmd string\n");
+		}
+		if (dmverity_corrupt != NULL) {
+			pr_info("brcmstb_reboot: dm-verity device corrupted reported\n");
+			val |= RESTART_CAUSE_DMVERITY_EIO_MARKER;
 		}
 		writel(val, aon_sram_base + AON_REG_ANDROID_RESTART_CAUSE);
 #ifdef CONFIG_BRCMSTB_WKTMR_SYSTIME_SYNC
