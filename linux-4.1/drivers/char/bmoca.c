@@ -1449,9 +1449,9 @@ static void moca_work_handler(struct work_struct *work)
 
 	mutex_lock(&priv->dev_mutex);
 
-	moca_disable_irq(priv);
 
 	if (priv->enabled) {
+		moca_disable_irq(priv);
 		mask = moca_irq_status(priv, FLUSH_IRQ);
 
 		if (mask & M2H_DMA) {
@@ -1855,7 +1855,7 @@ static int moca_ioctl_writemem(struct moca_priv_data *priv,
 	   range check */
 	if ((x.len & MOCA_ABSOLUTE_ADDR_FLAG) && (!priv->range_check_flag)) {
 		dst = (uintptr_t)x.moca_addr;
-		x.len &= MOCA_ABSOLUTE_ADDR_FLAG;
+		x.len &= ~MOCA_ABSOLUTE_ADDR_FLAG;
 	} else {
 		if (!priv->running)
 			return -ENOTTY;
