@@ -453,6 +453,11 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			connected to one of 16 gameports
 			Format: <type1>,<type2>,..<type16>
 
+	android_blkdev=	[KNL]
+			Format: "PARTUUID=partition UUID"
+			Provide the UUID of a partition on the Android block
+			device.
+
 	apc=		[HW,SPARC]
 			Power management functions (SPARCstation-4/5 + deriv.)
 			Format: noidle
