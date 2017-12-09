@@ -94,8 +94,13 @@ static void skcipher_free_async_sgls(struct skcipher_async_req *sreq)
 	}
 	sgl = sreq->tsg;
 	n = sg_nents(sgl);
-	for_each_sg(sgl, sg, n, i)
-		put_page(sg_page(sg));
+	for_each_sg(sgl, sg, n, i) {
+		struct page *page = sg_page(sg);
+
+		/* some SGs may not have a page mapped */
+		if (page && atomic_read(&page->_count))
+			put_page(page);
+	}
 
 	kfree(sreq->tsg);
 }
@@ -648,13 +653,6 @@ static int skcipher_recvmsg_sync(struct socket *sock, struct msghdr *msg,
 
 	lock_sock(sk);
 	while (msg_data_left(msg)) {
-		sgl = list_first_entry(&ctx->tsgl,
-				       struct skcipher_sg_list, list);
-		sg = sgl->sg;
-
-		while (!sg->length)
-			sg++;
-
 		if (!ctx->used) {
 			err = skcipher_wait_for_data(sk, flags);
 			if (err)
@@ -674,6 +672,13 @@ static int skcipher_recvmsg_sync(struct socket *sock, struct msghdr *msg,
 		err = -EINVAL;
 		if (!used)
 			goto free;
+
+		sgl = list_first_entry(&ctx->tsgl,
+				       struct skcipher_sg_list, list);
+		sg = sgl->sg;
+
+		while (!sg->length)
+			sg++;
 
 		ablkcipher_request_set_crypt(&ctx->req, sg,
 					     ctx->rsgl.sg, used,

@@ -81,6 +81,7 @@
 #include <linux/integrity.h>
 #include <linux/proc_ns.h>
 #include <linux/io.h>
+#include <linux/mount.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
@@ -137,6 +138,8 @@ static char *ramdisk_execute_command;
  */
 bool static_key_initialized __read_mostly;
 EXPORT_SYMBOL_GPL(static_key_initialized);
+
+static char *android_blkdev;
 
 /*
  * If set, this is an indication to the drivers that reset the underlying
@@ -367,6 +370,43 @@ static void __init setup_command_line(char *command_line)
 	static_command_line = memblock_virt_alloc(strlen(command_line) + 1, 0);
 	strcpy(saved_command_line, boot_command_line);
 	strcpy(static_command_line, command_line);
+}
+
+/*
+ * Expects the UUID of a partition on the Android block device
+ * Format: "PARTUUID=<partition UUID>"
+ */
+static int __init android_blkdev_setup(char *str)
+{
+	android_blkdev = str;
+	return 1;
+}
+__setup("android_blkdev=", android_blkdev_setup);
+
+static void wait_for_android_blkdev(void)
+{
+	int retry = 30;
+	dev_t dev;
+
+	if (!android_blkdev)
+		return;
+
+	/*
+	 * This assumes that all Android early mount partitions
+	 * exist on a single block device. When one partition shows
+	 * up, so do the rest. This holds true for now but the logic
+	 * will need to be reworked if this pre-condition changes.
+	 */
+	while (!(dev = name_to_dev_t(android_blkdev)) && retry-- > 0) {
+		pr_info("Waiting for dev: %s\n", android_blkdev);
+		msleep(100);
+	}
+
+	if (!dev) {
+		pr_err("Dev: %s not found. Android mounts will fail. Aborting!\n",
+			android_blkdev);
+		BUG();
+	}
 }
 
 /*
@@ -938,6 +978,8 @@ static int __ref kernel_init(void *unused)
 	numa_default_policy();
 
 	flush_delayed_fput();
+
+	wait_for_android_blkdev();
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);

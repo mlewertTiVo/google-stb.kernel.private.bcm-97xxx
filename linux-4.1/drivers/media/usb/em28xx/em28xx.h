@@ -144,6 +144,8 @@
 #define EM2861_BOARD_LEADTEK_VC100                95
 #define EM28178_BOARD_TERRATEC_T2_STICK_HD        96
 #define EM2884_BOARD_ELGATO_EYETV_HYBRID_2008     97
+#define EM28174_BOARD_HAUPPAUGE_WINTV_DUALHD_DVB  98
+#define EM28174_BOARD_HAUPPAUGE_WINTV_DUALHD_ATSC 99
 
 /* Limits minimum and default number of buffers */
 #define EM28XX_MIN_BUF 4
@@ -186,7 +188,7 @@
    USB 2.0 spec says bulk packet size is always 512 bytes
  */
 #define EM28XX_BULK_PACKET_MULTIPLIER 384
-#define EM28XX_DVB_BULK_PACKET_MULTIPLIER 384
+#define EM28XX_DVB_BULK_PACKET_MULTIPLIER 240
 
 #define EM28XX_INTERLACED_DEFAULT 1
 
@@ -211,6 +213,9 @@
 
 /* max. number of button state polling addresses */
 #define EM28XX_NUM_BUTTON_ADDRESSES_MAX		5
+
+#define PRIMARY_TS	0
+#define SECONDARY_TS	1
 
 enum em28xx_mode {
 	EM28XX_SUSPEND,
@@ -457,6 +462,7 @@ struct em28xx_board {
 	unsigned int mts_firmware:1;
 	unsigned int max_range_640_480:1;
 	unsigned int has_dvb:1;
+	unsigned int has_dual_ts:1;
 	unsigned int is_webcam:1;
 	unsigned int valid:1;
 	unsigned int has_ir_i2c:1;
@@ -605,6 +611,9 @@ struct em28xx {
 	struct em28xx_dvb *dvb;
 	struct em28xx_audio adev;
 	struct em28xx_IR *ir;
+	struct em28xx *dev_next;
+
+	int ts;
 
 	/* generic device properties */
 	char name[30];		/* name (including minor) of the device */
@@ -675,12 +684,14 @@ struct em28xx {
 	spinlock_t slock;
 
 	/* usb transfer */
-	struct usb_device *udev;	/* the usb device */
+	struct usb_interface *intf;	/* the usb interface */
 	u8 ifnum;		/* number of the assigned usb interface */
 	u8 analog_ep_isoc;	/* address of isoc endpoint for analog */
 	u8 analog_ep_bulk;	/* address of bulk endpoint for analog */
 	u8 dvb_ep_isoc;		/* address of isoc endpoint for DVB */
 	u8 dvb_ep_bulk;		/* address of bulk endpoint for DVB */
+	u8 dvb_ep_isoc_ts2;	/* address of isoc endpoint for DVB TS2*/
+	u8 dvb_ep_bulk_ts2;	/* address of bulk endpoint for DVB TS2*/
 	int alt;		/* alternate setting */
 	int max_pkt_size;	/* max packet size of the selected ep at alt */
 	int packet_multiplier;	/* multiplier for wMaxPacketSize, used for
@@ -691,6 +702,8 @@ struct em28xx {
 						   transfers for analog      */
 	int dvb_alt_isoc;	/* alternate setting for DVB isoc transfers */
 	unsigned int dvb_max_pkt_size_isoc;	/* isoc max packet size of the
+						   selected DVB ep at dvb_alt */
+	unsigned int dvb_max_pkt_size_isoc_ts2;	/* isoc max packet size of the
 						   selected DVB ep at dvb_alt */
 	unsigned int dvb_xfer_bulk:1;		/* use bulk instead of isoc
 						   transfers for DVB          */
