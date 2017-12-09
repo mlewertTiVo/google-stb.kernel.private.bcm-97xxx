@@ -63,6 +63,7 @@ static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;
 
 static int em28xx_deinit_isoc_audio(struct em28xx *dev)
 {
+	struct usb_device *udev = interface_to_usbdev(dev->intf);
 	int i;
 
 	dprintk("Stopping isoc\n");
@@ -251,6 +252,7 @@ static int snd_em28xx_capture_open(struct snd_pcm_substream *substream)
 {
 	struct em28xx *dev = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct usb_device *udev = interface_to_usbdev(dev->intf);
 	int nonblock, ret = 0;
 
 	if (!dev) {
@@ -292,7 +294,7 @@ static int snd_em28xx_capture_open(struct snd_pcm_substream *substream)
 				 */
 			dprintk("changing alternate number on interface %d to %d\n",
 				dev->ifnum, dev->alt);
-			usb_set_interface(dev->udev, dev->ifnum, dev->alt);
+			usb_set_interface(udev, dev->ifnum, dev->alt);
 		}
 
 		/* Sets volume, mute, etc */
@@ -887,6 +889,7 @@ static int em28xx_audio_urb_init(struct em28xx *dev)
 static int em28xx_audio_init(struct em28xx *dev)
 {
 	struct em28xx_audio *adev = &dev->adev;
+	struct usb_device *udev = interface_to_usbdev(dev->intf);
 	struct snd_pcm      *pcm;
 	struct snd_card     *card;
 	static int          devnr;
@@ -908,14 +911,14 @@ static int em28xx_audio_init(struct em28xx *dev)
 	printk(KERN_INFO
 	       "em28xx-audio.c: Copyright (C) 2007-2014 Mauro Carvalho Chehab\n");
 
-	err = snd_card_new(&dev->udev->dev, index[devnr], "Em28xx Audio",
+	err = snd_card_new(&udev->dev, index[devnr], "Em28xx Audio",
 			   THIS_MODULE, 0, &card);
 	if (err < 0)
 		return err;
 
 	spin_lock_init(&adev->slock);
 	adev->sndcard = card;
-	adev->udev = dev->udev;
+	adev->udev = udev;
 
 	err = snd_pcm_new(card, "Em28xx Audio", 0, 0, 1, &pcm);
 	if (err < 0)
