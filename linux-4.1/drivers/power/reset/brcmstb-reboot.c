@@ -88,12 +88,16 @@ static int brcmstb_reboot_handler(struct notifier_block *this,
 			dmverity_corrupt = strstr(command, "dm-verity device corrupted");
 		}
 		if (command != NULL && command[0] != 0) {
+			val = 0;
 			/* Save first letter of the reboot command argument to
 			 * distinguish different reboot reason. Expected 'cmd':
 			 *   - 'bootloader': Boot into bootloader
 			 *   - 'recovery': Boot into recovery mode
 			 *   - otherwise: Boot into normal Android mode*/
-			val = command[0];
+			if (strstr(command, "recovery") != NULL ||
+			    strstr(command, "bootloader") != NULL)
+				val = command[0];
+
 			pr_info("brcmstb_reboot: cmd='%s', val=%u\n", command, val);
 		} else {
 			val = 0;
