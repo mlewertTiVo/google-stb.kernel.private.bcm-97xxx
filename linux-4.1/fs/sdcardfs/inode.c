@@ -694,6 +694,7 @@ static int sdcardfs_setattr(struct vfsmount *mnt, struct dentry *dentry, struct 
 	struct dentry *parent;
 	struct inode tmp;
 	struct sdcardfs_inode_data *top;
+	struct dentry tmp_d;
 	const struct cred *saved_cred = NULL;
 
 	inode = d_inode(dentry);
@@ -722,9 +723,10 @@ static int sdcardfs_setattr(struct vfsmount *mnt, struct dentry *dentry, struct 
 	tmp.i_size = i_size_read(inode);
 	data_put(top);
 	tmp.i_sb = inode->i_sb;
+	tmp_d.d_inode = &tmp;
 
 	/*
-	 * Check if user has permission to change inode.  We don't check if
+	 * Check if user has permission to change dentry.  We don't check if
 	 * this user can change the lower inode: that should happen when
 	 * calling notify_change on the lower inode.
 	 */
@@ -734,7 +736,7 @@ static int sdcardfs_setattr(struct vfsmount *mnt, struct dentry *dentry, struct 
 	 * we have write access. Changes to mode, owner, and group are ignored
 	 */
 	ia->ia_valid |= ATTR_FORCE;
-	err = inode_change_ok(&tmp, ia);
+	err = setattr_prepare(&tmp_d, ia);
 
 	if (!err) {
 		/* check the Android group ID */

@@ -119,6 +119,8 @@ enum bcm_sf2_reg_offs {
 #define ACB_CONTROL			0x00
 #define  ACB_EN				(1 << 0)
 #define  ACB_ALGORITHM			(1 << 1)
+#define  ACB_FLUSH_SHIFT		2
+#define  ACB_FLUSH_MASK			0x3
 
 #define ACB_QUEUE_0_CFG			0x08
 #define  XOFF_THRESHOLD_MASK		0x7ff
@@ -129,7 +131,7 @@ enum bcm_sf2_reg_offs {
 #define  TOTAL_XON_EN			(1 << 24)
 #define  PKTLEN_SHIFT			25
 #define  PKTLEN_MASK			0x3f
-#define ACB_QUEUE_CFG(x)		(ACB_QUEUE_0_CFG + (x * 0x4))
+#define ACB_QUEUE_CFG(x)		(ACB_QUEUE_0_CFG + ((x) * 0x4))
 
 /* Register set relative to 'CORE' */
 #define CORE_G_PCTL_PORT0		0x00000
@@ -365,14 +367,18 @@ enum bcm_sf2_reg_offs {
 /* UDF_DATA7 */
 #define L3_FRAMING_SHIFT		24
 #define L3_FRAMING_MASK			(0x3 << L3_FRAMING_SHIFT)
+#define IPTOS_SHIFT			16
+#define IPTOS_MASK			0xff
 #define IPPROTO_SHIFT			8
 #define IPPROTO_MASK			(0xff << IPPROTO_SHIFT)
-#define IP_FRAG				(1 << 7)
+#define IP_FRAG_SHIFT			7
+#define IP_FRAG				(1 << IP_FRAG_SHIFT)
 
 /* UDF_DATA0 */
 #define  SLICE_VALID			3
 #define  SLICE_NUM_SHIFT		2
 #define  SLICE_NUM(x)			((x) << SLICE_NUM_SHIFT)
+#define  SLICE_NUM_MASK			0x3
 
 #define CORE_CFP_MASK_PORT_0		0x280c0
 
@@ -468,12 +474,22 @@ enum bcm_sf2_reg_offs {
 #define  CFG_UDF_EOL2			(2 << CFG_UDF_OFFSET_BASE_SHIFT)
 #define  CFG_UDF_EOL3			(3 << CFG_UDF_OFFSET_BASE_SHIFT)
 
+/* IPv6 slices */
+#define CORE_UDF_0_B_0_8_PORT_0		0x28500
+
+/* IPv6 chained slices */
+#define CORE_UDF_0_D_0_11_PORT_0	0x28680
+
 /* Number of slices for IPv4, IPv6 and non-IP */
-#define UDF_NUM_SLICES			9
+#define UDF_NUM_SLICES			4
+#define UDFS_PER_SLICE			9
 
 /* Spacing between different slices */
 #define UDF_SLICE_OFFSET		0x40
 
 #define CFP_NUM_RULES			256
+
+/* Number of egress queues per port */
+#define SF2_NUM_EGRESS_QUEUES		8
 
 #endif /* __BCM_SF2_REGS_H */

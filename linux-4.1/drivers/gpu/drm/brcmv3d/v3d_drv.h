@@ -223,4 +223,9 @@ void v3d_debugfs_create_file_entries(struct drm_file *file) {}
 void v3d_debugfs_cleanup_file_entries(struct drm_file *file) {}
 #endif
 
+#ifdef CONFIG_COMPAT
+long v3d_drm_compat_ioctl(struct file *filp, unsigned int cmd,
+			  unsigned long arg);
+#endif
+
 #endif
