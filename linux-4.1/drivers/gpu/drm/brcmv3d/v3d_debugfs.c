@@ -93,6 +93,33 @@ static int v3d_file_client_info(struct seq_file *m, void *data)
 	return 0;
 }
 
+static int v3d_file_rawcma_info(struct seq_file *m, void *data)
+{
+	struct drm_info_node *node = (struct drm_info_node *)m->private;
+	struct drm_device *dev = node->minor->dev;
+	struct dentry *root = node->dent->d_parent;
+	struct drm_file *file = root->d_fsdata;
+	struct v3d_drm_file_private *fp = file->driver_priv;
+	struct v3d_alloc_block *itr;
+	int cma_blocks = 0, ret;
+
+	ret = mutex_lock_interruptible(&dev->struct_mutex);
+	if (ret)
+		return ret;
+
+	if (!list_empty(&fp->alloc_blocks)) {
+		list_for_each_entry(itr, &fp->alloc_blocks, node)
+			cma_blocks++;
+	}
+
+	seq_printf(m, "%lu\n",
+		   cma_blocks * V3D_CMA_ALLOC_BLOCK_SIZE / (1024 * 1024));
+
+	mutex_unlock(&dev->struct_mutex);
+
+	return 0;
+}
+
 static int v3d_file_cma_info(struct seq_file *m, void *data)
 {
 	struct drm_info_node *node = (struct drm_info_node *)m->private;
@@ -282,6 +309,7 @@ static const struct drm_info_list v3d_debugfs_list[] = {
 	{"cma", v3d_file_cma_info, 0},
 	{"pagetable_raw", v3d_file_pagetable_raw_info, 0},
 	{"pagetable_cooked", v3d_file_pagetable_cooked_info, 0},
+	{"rawcma", v3d_file_rawcma_info, 0},
 };
 
 void v3d_debugfs_create_file_entries(struct drm_file *file)
@@ -289,13 +317,9 @@ void v3d_debugfs_create_file_entries(struct drm_file *file)
 	struct drm_minor *minor = file->minor;
 	struct v3d_drm_file_private *fp = file->driver_priv;
 	char name[64];
+	struct task_struct *task = get_pid_task(file->pid, PIDTYPE_PID);
 
-	/*
-	 * A process cannot be prevented from opening the device multiple
-	 * times, so we need to generate a unique name. Using a kernel pointer
-	 * here isn't ideal but I can't immediately think of a better way.
-	 */
-	sprintf(name, "%d-%p", pid_nr(file->pid), fp);
+	sprintf(name, "%d", task->tgid);
 	fp->debugfs_root = debugfs_create_dir(name, minor->debugfs_root);
 	if (!fp->debugfs_root) {
 		DRM_ERROR("Cannot create /sys/kernel/debug/dri/%d/%s\n",

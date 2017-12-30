@@ -433,7 +433,7 @@ config ARM_CHARLCD
 	  still useful.
 
 config BMP085
-	bool
+	tristate
 	depends on SYSFS
 
 config BMP085_I2C
@@ -533,6 +533,15 @@ config BRCMSTB_HDMI_HPD
 	  This driver uses the Android switch framework to keep track of the
 	  HDMI port status. The switch entry is set when the HDMI port is
 	  connected and unset when the HDMI port is unplugged.
+
+config BRCMSTB_PROC_INFO
+	tristate "Broadcom STB proc info proxy driver"
+	depends on ARCH_BRCMSTB
+	default n
+	help
+	  This driver helps proxy information from the /proc file
+	  system into user space consumers that are not allowed direct
+	  access due to policy limitations.
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"

@@ -25,21 +25,24 @@ struct brcm_msi;
 struct brcm_info;
 struct platform_device;
 
-dma_addr_t brcm_to_pci(dma_addr_t addr);
-dma_addr_t brcm_to_cpu(dma_addr_t addr);
+extern struct of_pci_range *dma_ranges;
+extern int num_dma_ranges;
 
-extern struct notifier_block brcmstb_platform_nb;
+int brcm_register_notifier(void);
+int brcm_unregister_notifier(void);
 
 #ifdef CONFIG_PCI_MSI
 int brcm_msi_probe(struct platform_device *pdev, struct brcm_info *info);
 void brcm_msi_set_regs(struct msi_controller *chip);
+void brcm_msi_remove(struct msi_controller *chip);
 #else
 int brcm_msi_probe(struct platform_device *pdev, struct brcm_info *info)
 {
 	return -ENODEV;
 }
 
-void brcm_msi_set_regs(struct msi_controller *chip) {}
+static inline void brcm_msi_set_regs(struct msi_controller *chip) {}
+static inline void brcm_msi_remove(struct msi_controller *chip) {}
 #endif /* CONFIG_PCI_MSI */
 
 struct brcm_info {
