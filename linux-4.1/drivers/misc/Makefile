@@ -59,3 +59,4 @@ obj-$(CONFIG_VEXPRESS_SYSCFG)	+= vexpress-syscfg.o
 obj-$(CONFIG_CXL_BASE)		+= cxl/
 obj-$(CONFIG_UID_CPUTIME) += uid_cputime.o
 obj-$(CONFIG_BRCMSTB_HDMI_HPD)	+= brcmstb-hdmi-hpd.o
+obj-$(CONFIG_BRCMSTB_PROC_INFO)	+= brcmstb-proc-info.o

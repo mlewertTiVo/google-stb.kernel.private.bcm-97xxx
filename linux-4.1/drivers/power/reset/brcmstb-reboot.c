@@ -95,9 +95,9 @@ static int brcmstb_reboot_handler(struct notifier_block *this,
 			 *   - 'recovery': Boot into recovery mode
 			 *   - otherwise: Boot into normal Android mode*/
 			if (strstr(command, "recovery") != NULL ||
-					strstr(command, "bootloader") != NULL) {
+			    strstr(command, "bootloader") != NULL)
 				val = command[0];
-			}
+
 			pr_info("brcmstb_reboot: cmd='%s', val=%u\n", command, val);
 		} else {
 			val = 0;
