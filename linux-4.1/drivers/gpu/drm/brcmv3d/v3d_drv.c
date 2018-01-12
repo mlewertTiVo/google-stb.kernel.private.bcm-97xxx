@@ -45,9 +45,10 @@
 
 #define DRIVER_NAME	"brcmv3d"
 #define DRIVER_DESC	"Broadcom V3D GEM provider"
-#define DRIVER_DATE	"20161207"
+#define DRIVER_DATE	"20171214"
 #define DRIVER_MAJOR	1
 #define DRIVER_MINOR	1
+#define DRIVER_PATCH    1
 
 /*
  * Add a new debug level for verbose information from the memory allocations
@@ -1509,6 +1510,9 @@ static const struct file_operations v3d_driver_fops = {
 	.poll		= drm_poll,
 	.read		= drm_read,
 	.unlocked_ioctl = drm_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl   = v3d_drm_compat_ioctl,
+#endif
 	.release	= drm_release,
 };
 
@@ -1529,6 +1533,7 @@ static struct drm_driver v3d_driver = {
 	.date			= DRIVER_DATE,
 	.major			= DRIVER_MAJOR,
 	.minor			= DRIVER_MINOR,
+	.patchlevel		= DRIVER_PATCH,
 };
 
 struct v3d_drm_config_data {

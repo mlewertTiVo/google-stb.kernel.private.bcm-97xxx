@@ -534,6 +534,15 @@ config BRCMSTB_HDMI_HPD
 	  HDMI port status. The switch entry is set when the HDMI port is
 	  connected and unset when the HDMI port is unplugged.
 
+config BRCMSTB_PROC_INFO
+	tristate "Broadcom STB proc info proxy driver"
+	depends on ARCH_BRCMSTB
+	default n
+	help
+	  This driver helps proxy information from the /proc file
+	  system into user space consumers that are not allowed direct
+	  access due to policy limitations.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
