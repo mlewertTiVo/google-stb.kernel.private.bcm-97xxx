@@ -44,7 +44,7 @@ static int v3d_file_client_info(struct seq_file *m, void *data)
 	struct task_struct *task;
 	struct drm_gem_object *obj;
 	struct v3d_alloc_block *itr;
-	int id, num_objs = 0, total_obj_size = 0, cma_blocks = 0, ret;
+	int id, num_objs = 0, total_obj_size = 0, cma_blocks = 0, ret, i;
 	bool obj_size_mb = false;
 
 	ret = mutex_lock_interruptible(&dev->struct_mutex);
@@ -64,9 +64,11 @@ static int v3d_file_client_info(struct seq_file *m, void *data)
 		obj_size_mb = true;
 	}
 
-	if (!list_empty(&fp->alloc_blocks)) {
-		list_for_each_entry(itr, &fp->alloc_blocks, node)
-			cma_blocks++;
+	for (i = 0; i < MAX_CMA_AREAS; i++) {
+		if (!list_empty(&fp->alloc_blocks[i])) {
+			list_for_each_entry(itr, &fp->alloc_blocks[i], node)
+				cma_blocks++;
+		}
 	}
 
 	seq_printf(m,
@@ -101,15 +103,18 @@ static int v3d_file_rawcma_info(struct seq_file *m, void *data)
 	struct drm_file *file = root->d_fsdata;
 	struct v3d_drm_file_private *fp = file->driver_priv;
 	struct v3d_alloc_block *itr;
-	int cma_blocks = 0, ret;
+	int cma_blocks = 0, ret, i;
+
 
 	ret = mutex_lock_interruptible(&dev->struct_mutex);
 	if (ret)
 		return ret;
 
-	if (!list_empty(&fp->alloc_blocks)) {
-		list_for_each_entry(itr, &fp->alloc_blocks, node)
-			cma_blocks++;
+	for (i = 0; i < MAX_CMA_AREAS; i++) {
+		if (!list_empty(&fp->alloc_blocks[i])) {
+			list_for_each_entry(itr, &fp->alloc_blocks[i], node)
+				cma_blocks++;
+		}
 	}
 
 	seq_printf(m, "%lu\n",
@@ -120,6 +125,34 @@ static int v3d_file_rawcma_info(struct seq_file *m, void *data)
 	return 0;
 }
 
+#define BITS_PER_MAP_ENTRY (V3D_CMA_ALLOC_MAP_SIZE / 32)
+
+static void v3d_file_cma_block_map(struct seq_file *m,
+				   struct v3d_alloc_block *block)
+{
+	int i, c = 0;
+	char mapbuf[33];
+
+	for (i = 0; i < V3D_CMA_ALLOC_MAP_SIZE; i += BITS_PER_MAP_ENTRY) {
+		int nset = 0, b;
+
+		for (b = 0; b < BITS_PER_MAP_ENTRY; b++)
+			nset += test_bit(i + b, block->alloc_map);
+
+		switch (nset) {
+		case 0:
+			 mapbuf[c++] = '-'; break;
+		case BITS_PER_MAP_ENTRY:
+			 mapbuf[c++] = '*'; break;
+		default:
+			 mapbuf[c++] = '+'; break;
+		}
+	}
+
+	mapbuf[32] = '\0';
+	seq_printf(m, "%pa: %32s\n", &block->phys_addr, mapbuf);
+}
+
 static int v3d_file_cma_info(struct seq_file *m, void *data)
 {
 	struct drm_info_node *node = (struct drm_info_node *)m->private;
@@ -128,31 +161,24 @@ static int v3d_file_cma_info(struct seq_file *m, void *data)
 	struct drm_file *file = root->d_fsdata;
 	struct v3d_drm_file_private *fp = file->driver_priv;
 	struct v3d_alloc_block *itr;
-	int ret;
+	int ret, d;
 
 	ret = mutex_lock_interruptible(&dev->struct_mutex);
 	if (ret)
 		return ret;
 
 	seq_printf(m,
-		   "%18s: %32s\n",
+		   "%18s:	 %2dK %s\n",
 		   "CMA Block Physcal",
-		   "64K Page Allocation Mask");
+		   (int)V3D_HW_PAGE_SIZE / 1024,
+		   "Page Allocation Mask");
 
 	seq_puts(m, "====================================================\n");
 
-	if (!list_empty(&fp->alloc_blocks)) {
-		list_for_each_entry(itr, &fp->alloc_blocks, node) {
-			uint32_t map = itr->alloc_map;
-			char mapbuf[33];
-			int i;
-
-			for (i = 0; i < 32; i++) {
-				mapbuf[i] = (map & BIT(0)) ? '*' : '-';
-				map >>= 1;
-			}
-			mapbuf[32] = '\0';
-			seq_printf(m, "%pa: %32s\n", &itr->phys_addr, mapbuf);
+	for (d = 0; d < MAX_CMA_AREAS; d++) {
+		if (!list_empty(&fp->alloc_blocks[d])) {
+			list_for_each_entry(itr, &fp->alloc_blocks[d], node)
+				v3d_file_cma_block_map(m, itr);
 		}
 	}
 
@@ -284,7 +310,7 @@ static int v3d_file_pagetable_cooked_info(struct seq_file *m, void *data)
 		   "Physical");
 
 	for (i = 0; i < V3D_HW_PAGE_TABLE_ENTRIES; i += stride) {
-		uint32_t entry = fp->hw_vmem.pt_kaddr[i];
+		u32 entry = fp->hw_vmem.pt_kaddr[i];
 		phys_addr_t phys = (phys_addr_t)(entry & ~V3D_PAGE_FLAG_MASK) <<
 				V3D_HW_SMALLEST_PAGE_SHIFT;
 		bool valid = entry & V3D_PAGE_FLAG_VALID;
