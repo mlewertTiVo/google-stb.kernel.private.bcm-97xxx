@@ -53,6 +53,9 @@ static struct kmem_cache *sigqueue_cachep;
 
 int print_fatal_signals __read_mostly;
 
+bool shutdown_in_progress __read_mostly = false;
+EXPORT_SYMBOL(shutdown_in_progress);
+
 static void __user *sig_handler(struct task_struct *t, int sig)
 {
 	return t->sighand->action[sig - 1].sa.sa_handler;
@@ -1128,6 +1131,11 @@ static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			int group)
 {
 	int from_ancestor_ns = 0;
+
+	/* Prevent signals when Android shutdown is in progress */
+	if (shutdown_in_progress &&
+	    (sig == SIGKILL || sig == SIGTERM))
+		return 0;
 
 #ifdef CONFIG_PID_NS
 	from_ancestor_ns = si_fromuser(info) &&
