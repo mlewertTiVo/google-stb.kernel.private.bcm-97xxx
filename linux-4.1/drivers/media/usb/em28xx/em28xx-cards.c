@@ -3288,7 +3288,7 @@ int em28xx_duplicate_dev(struct em28xx *dev)
 	memcpy(sec_dev, dev, sizeof(sizeof(*sec_dev)));
 	/* Check to see next free device and mark as used */
 	do {
-		nr = find_first_zero_bit(&em28xx_devused, EM28XX_MAXBOARDS);
+		nr = find_first_zero_bit(em28xx_devused, EM28XX_MAXBOARDS);
 		if (nr >= EM28XX_MAXBOARDS) {
 			/* No free device slots */
 			printk(DRIVER_NAME ": Supports only %i em28xx boards.\n",
