@@ -1,5 +1,5 @@
 /*
- * Copyright © 2017 Broadcom
+ * Broadcom Proprietary and Confidential. (c)2016 Broadcom.
  * All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -44,8 +44,9 @@ static int v3d_file_client_info(struct seq_file *m, void *data)
 	struct task_struct *task;
 	struct drm_gem_object *obj;
 	struct v3d_alloc_block *itr;
-	int id, num_objs = 0, total_obj_size = 0, cma_blocks = 0, ret;
-	bool obj_size_mb = false;
+	int i, id, ret, num_objs = 0, cma_blocks = 0;
+	size_t total_obj_size = 0, shm_size = 0;
+	bool obj_size_mb = false, shm_size_mb = false;
 
 	ret = mutex_lock_interruptible(&dev->struct_mutex);
 	if (ret)
@@ -53,44 +54,115 @@ static int v3d_file_client_info(struct seq_file *m, void *data)
 
 	spin_lock(&file->table_lock);
 	idr_for_each_entry(&file->object_idr, obj, id) {
+		struct v3d_drm_gem_object *v3dobj = to_v3d_obj(obj);
+
 		num_objs++;
 		total_obj_size += obj->size;
+		if (v3dobj->shm_pages)
+			shm_size += obj->size;
 	}
 	spin_unlock(&file->table_lock);
 
 	total_obj_size = total_obj_size / 1024;
-	if (total_obj_size > 2 * 1024) {
-		total_obj_size = total_obj_size / 1024;
+	if (total_obj_size > 32 * 1024) {
+		total_obj_size = (total_obj_size + 1023) / 1024;
 		obj_size_mb = true;
 	}
 
-	if (!list_empty(&fp->alloc_blocks)) {
-		list_for_each_entry(itr, &fp->alloc_blocks, node)
-			cma_blocks++;
+	shm_size = shm_size / 1024;
+	if (shm_size > 32 * 1024) {
+		shm_size = (shm_size + 1023) / 1024;
+		shm_size_mb = true;
 	}
 
+	for (i = 0; i < MAX_CMA_AREAS; i++) {
+		if (!list_empty(&fp->alloc_blocks[i])) {
+			list_for_each_entry(itr, &fp->alloc_blocks[i], node)
+				cma_blocks++;
+		}
+	}
 	seq_printf(m,
-		   "%20s %18s %7s %13s %10s\n",
+		   "%19s %18s %7s %10s %10s %10s\n",
 		   "command",
 		   "pagetable phys",
 		   "objects",
-		   "virtual mem",
-		   "CMA mem");
+		   "Virtual",
+		   "SHM pages",
+		   "CMA blocks");
 
 	rcu_read_lock(); /* locks pid_task()->comm */
 	task = pid_task(file->pid, PIDTYPE_PID);
-	seq_printf(m, "%20s %pa %7d %11d%2s %8luMB\n",
+	seq_printf(m, "%19s %pa %7d %8zd%2s %8zd%2s %8luMB\n",
 		   task ? task->comm : "<unknown>",
 		   &fp->hw_vmem.pt_phys,
 		   num_objs,
 		   total_obj_size,
 		   obj_size_mb ? "MB" : "KB",
+		   shm_size,
+		   shm_size_mb ? "MB" : "KB",
 		   cma_blocks * V3D_CMA_ALLOC_BLOCK_SIZE / (1024 * 1024));
 	rcu_read_unlock();
 
 	mutex_unlock(&dev->struct_mutex);
 
 	return 0;
+}
+
+static int v3d_file_rawcma_info(struct seq_file *m, void *data)
+{
+	struct drm_info_node *node = (struct drm_info_node *)m->private;
+	struct drm_device *dev = node->minor->dev;
+	struct dentry *root = node->dent->d_parent;
+	struct drm_file *file = root->d_fsdata;
+	struct v3d_drm_file_private *fp = file->driver_priv;
+	struct v3d_alloc_block *itr;
+	int cma_blocks = 0, ret, i;
+
+	ret = mutex_lock_interruptible(&dev->struct_mutex);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < MAX_CMA_AREAS; i++) {
+		if (!list_empty(&fp->alloc_blocks[i])) {
+			list_for_each_entry(itr, &fp->alloc_blocks[i], node)
+				cma_blocks++;
+		}
+	}
+
+	seq_printf(m, "%lu\n",
+		   cma_blocks * V3D_CMA_ALLOC_BLOCK_SIZE / (1024 * 1024));
+
+	mutex_unlock(&dev->struct_mutex);
+
+	return 0;
+}
+
+#define BITS_PER_MAP_ENTRY (V3D_CMA_ALLOC_MAP_SIZE / 32)
+
+static void v3d_file_cma_block_map(struct seq_file *m,
+				   struct v3d_alloc_block *block)
+{
+	int i, c = 0;
+	char mapbuf[33];
+
+	for (i = 0; i < V3D_CMA_ALLOC_MAP_SIZE; i += BITS_PER_MAP_ENTRY) {
+		int nset = 0, b;
+
+		for (b = 0; b < BITS_PER_MAP_ENTRY; b++)
+			nset += test_bit(i + b, block->alloc_map);
+
+		switch (nset) {
+		case 0:
+			 mapbuf[c++] = '-'; break;
+		case BITS_PER_MAP_ENTRY:
+			 mapbuf[c++] = '*'; break;
+		default:
+			 mapbuf[c++] = '+'; break;
+		}
+	}
+
+	mapbuf[32] = '\0';
+	seq_printf(m, "%pa: %32s\n", &block->phys_addr, mapbuf);
 }
 
 static int v3d_file_cma_info(struct seq_file *m, void *data)
@@ -101,38 +173,30 @@ static int v3d_file_cma_info(struct seq_file *m, void *data)
 	struct drm_file *file = root->d_fsdata;
 	struct v3d_drm_file_private *fp = file->driver_priv;
 	struct v3d_alloc_block *itr;
-	int ret;
+	int ret, d;
 
 	ret = mutex_lock_interruptible(&dev->struct_mutex);
 	if (ret)
 		return ret;
 
 	seq_printf(m,
-		   "%18s: %32s\n",
+		   "%18s:	 %2dK %s\n",
 		   "CMA Block Physcal",
-		   "64K Page Allocation Mask");
+		   (int)V3D_HW_PAGE_SIZE / 1024,
+		   "Page Allocation Mask");
 
 	seq_puts(m, "====================================================\n");
 
-	if (!list_empty(&fp->alloc_blocks)) {
-		list_for_each_entry(itr, &fp->alloc_blocks, node) {
-			uint32_t map = itr->alloc_map;
-			char mapbuf[33];
-			int i;
-
-			for (i = 0; i < 32; i++) {
-				mapbuf[i] = (map & BIT(0)) ? '*' : '-';
-				map >>= 1;
-			}
-			mapbuf[32] = '\0';
-			seq_printf(m, "%pa: %32s\n", &itr->phys_addr, mapbuf);
+	for (d = 0; d < MAX_CMA_AREAS; d++) {
+		if (!list_empty(&fp->alloc_blocks[d])) {
+			list_for_each_entry(itr, &fp->alloc_blocks[d], node)
+				v3d_file_cma_block_map(m, itr);
 		}
 	}
 
 	mutex_unlock(&dev->struct_mutex);
 	return 0;
 }
-
 static int v3d_file_objs_info(struct seq_file *m, void *data)
 {
 	struct drm_info_node *node = (struct drm_info_node *)m->private;
@@ -157,7 +221,7 @@ static int v3d_file_objs_info(struct seq_file *m, void *data)
 
 		ro = !!(v3d_obj->alloc_flags & V3D_CREATE_HW_READONLY);
 		wc = !!(v3d_obj->alloc_flags & V3D_CREATE_CPU_WRITECOMBINE);
-		ext = !v3d_obj->pages;
+		ext = !v3d_obj->cma_pages && !v3d_obj->shm_pages;
 		anon = !v3d_obj->desc;
 		seq_printf(m, "%10d %10zd 0x%08x %5c %5c %5c %28s\n",
 			   id, obj->size, v3d_obj->hw_virt_addr,
@@ -223,6 +287,9 @@ static int v3d_file_pagetable_raw_info(struct seq_file *m, void *data)
 	struct v3d_drm_file_private *fp = file->driver_priv;
 	int ret;
 
+	if (!fp->hw_vmem.pt_kaddr)
+		return 0;
+
 	ret = mutex_lock_interruptible(&dev->struct_mutex);
 	if (ret)
 		return ret;
@@ -244,6 +311,9 @@ static int v3d_file_pagetable_cooked_info(struct seq_file *m, void *data)
 	const int stride = V3D_HW_PAGE_SIZE >> V3D_HW_SMALLEST_PAGE_SHIFT;
 	int i, ret;
 
+	if (!fp->hw_vmem.pt_kaddr)
+		return 0;
+
 	ret = mutex_lock_interruptible(&dev->struct_mutex);
 	if (ret)
 		return ret;
@@ -257,7 +327,7 @@ static int v3d_file_pagetable_cooked_info(struct seq_file *m, void *data)
 		   "Physical");
 
 	for (i = 0; i < V3D_HW_PAGE_TABLE_ENTRIES; i += stride) {
-		uint32_t entry = fp->hw_vmem.pt_kaddr[i];
+		u32 entry = fp->hw_vmem.pt_kaddr[i];
 		phys_addr_t phys = (phys_addr_t)(entry & ~V3D_PAGE_FLAG_MASK) <<
 				V3D_HW_SMALLEST_PAGE_SHIFT;
 		bool valid = entry & V3D_PAGE_FLAG_VALID;
@@ -282,6 +352,7 @@ static const struct drm_info_list v3d_debugfs_list[] = {
 	{"cma", v3d_file_cma_info, 0},
 	{"pagetable_raw", v3d_file_pagetable_raw_info, 0},
 	{"pagetable_cooked", v3d_file_pagetable_cooked_info, 0},
+	{"rawcma", v3d_file_rawcma_info, 0},
 };
 
 void v3d_debugfs_create_file_entries(struct drm_file *file)
@@ -289,13 +360,9 @@ void v3d_debugfs_create_file_entries(struct drm_file *file)
 	struct drm_minor *minor = file->minor;
 	struct v3d_drm_file_private *fp = file->driver_priv;
 	char name[64];
+	struct task_struct *task = get_pid_task(file->pid, PIDTYPE_PID);
 
-	/*
-	 * A process cannot be prevented from opening the device multiple
-	 * times, so we need to generate a unique name. Using a kernel pointer
-	 * here isn't ideal but I can't immediately think of a better way.
-	 */
-	sprintf(name, "%d-%p", pid_nr(file->pid), fp);
+	sprintf(name, "%d", task->tgid);
 	fp->debugfs_root = debugfs_create_dir(name, minor->debugfs_root);
 	if (!fp->debugfs_root) {
 		DRM_ERROR("Cannot create /sys/kernel/debug/dri/%d/%s\n",

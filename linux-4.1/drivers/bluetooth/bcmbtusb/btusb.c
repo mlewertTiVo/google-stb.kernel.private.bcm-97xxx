@@ -1517,8 +1517,6 @@ static int __init btusb_init(void)
 {
     int result;
 
-    BTUSB_DBG("built %s,%s\n", __DATE__, __TIME__);
-
     /* initialize the wait queue */
     init_waitqueue_head(&btusb_misc.rx_wait_q);
 

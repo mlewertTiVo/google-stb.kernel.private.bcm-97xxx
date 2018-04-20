@@ -1178,8 +1178,6 @@ static int snd_atvr_pcm_open(struct snd_pcm_substream *substream)
 		runtime->hw.info &= ~(SNDRV_PCM_INFO_MMAP
 			| SNDRV_PCM_INFO_MMAP_VALID);
 
-	snd_atvr_log("%s, built %s %s\n", __func__, __DATE__, __TIME__);
-
 	/*
 	 * Allocate the maximum buffer now and then just use part of it when
 	 * the substream starts. We don't need DMA because it will just
