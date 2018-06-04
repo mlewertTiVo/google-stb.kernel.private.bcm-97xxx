@@ -1,7 +1,0 @@
-config BRCMSTB_WOWLAN
-	tristate "Broadcom 7271 Wake-On-WLAN support"
-	depends on CFG80211
-	default n
-	---help---
-	  Say y if you want to enable Wake-On-WLAN support for Broadcom's
-	  7271 set top box SoC. If unsure, say N.
