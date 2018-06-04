@@ -1,0 +1,27 @@
+brcm,bcmbt-rfkill
+-----------------
+
+A simple GPIO based RFKILL driver to driver regulator and reset lines the
+Broadcom Bluetooth chips.
+
+Required properties:
+
+ - compatible : must be "brcm,bcmbt-rfkill"
+
+Optional properties:
+
+ - brcm,vreg-gpio: GPIO to control the voltage regulator of the Bluetooth chip.
+
+ - brcm,n-reset-gpio: GPIO to reset the Bluetooth chip.
+
+Atleast one of the above GPIOs must be configured for the driver to function.
+
+Example:
+
+AON GPIO pin 6 connected to the Bluetooth chip RESET pin. No regulator GPIO pin
+available.
+
+bcmbt_rfkill {
+	compatible = "brcm,bcmbt-rfkill";
+	brcm,n-reset-gpio = <&upg_gio_aon 6 0>;
+};
