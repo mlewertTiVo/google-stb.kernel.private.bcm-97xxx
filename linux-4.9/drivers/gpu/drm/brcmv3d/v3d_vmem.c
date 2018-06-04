@@ -34,7 +34,9 @@ int v3d_vmem_init(struct v3d_hw_virtual_mem *vmem, struct drm_device *dev)
 	struct gen_pool *pool;
 	u32 *pt;
 	dma_addr_t dma_handle;
-	int err;
+	unsigned long pool_base;
+	size_t pool_size;
+	int i, err;
 
 	/* Do nothing if already created */
 	if (vmem->virtual_pool)
@@ -44,13 +46,25 @@ int v3d_vmem_init(struct v3d_hw_virtual_mem *vmem, struct drm_device *dev)
 	if (!pool)
 		return -ENOMEM;
 
-	err = gen_pool_add(pool,
-			   V3D_HW_VIRTUAL_ADDR_BASE,
-			   V3D_HW_VIRTUAL_ADDR_SIZE - V3D_HW_VIRTUAL_ADDR_BASE,
-			   -1);
+	pool_base = V3D_HW_VIRTUAL_ADDR_BASE;
+	pool_size = (V3D_HW_VIRTUAL_ADDR_SIZE - V3D_HW_VIRTUAL_ADDR_BASE)/V3D_HW_VIRTUAL_SPACE_MEMPOOL_NUMBER;
+	pool_size = pool_size & ~(PAGE_SIZE - 1);
+	for (i = 0; i < V3D_HW_VIRTUAL_SPACE_MEMPOOL_NUMBER; ++i) {
+		/* Make sure to cover the remaining space with the last pool, as the
+		* size left over may be larger than 'pool_size' due to the alignment
+		* of 'pool_size' to a PAGE_SIZE. */
+		if (i == (V3D_HW_VIRTUAL_SPACE_MEMPOOL_NUMBER - 1))
+			pool_size = V3D_HW_VIRTUAL_ADDR_SIZE - pool_base;
 
-	if (err)
-		goto pool_out;
+		err = gen_pool_add(pool, pool_base, pool_size, -1);
+		if (err) {
+			DRM_ERROR("Error adding memory pool, err:%d\n", err);
+			goto pool_out;
+		}
+
+		pool_base += pool_size;
+	}
+
 
 	DRM_DEBUG_DRIVER("Created virtual pool min_order=%d, base=0x%p, size=0x%zx\n",
 			 pool->min_alloc_order,

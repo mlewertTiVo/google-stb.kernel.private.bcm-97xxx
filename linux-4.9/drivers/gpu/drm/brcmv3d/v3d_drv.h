@@ -112,6 +112,15 @@ struct v3d_page_allocation {
 #define V3D_HW_PAGE_TABLE_SIZE \
 	(V3D_HW_PAGE_TABLE_ENTRY_SIZE * V3D_HW_PAGE_TABLE_ENTRIES)
 
+/* Number of memory pools used to compose the virtual mmu address space.
+   The memory pools will be part of a generic pool (gen_pool)  and each
+   of them will cover a section of the address space. The benefit of
+   dividing the virtual address space into smaller pools is less
+   contiguous kernel low-memory required, therefore preventing allocation
+   failures when creating the memory pool.
+*/
+#define V3D_HW_VIRTUAL_SPACE_MEMPOOL_NUMBER 6
+
 struct v3d_hw_virtual_mem {
 	/** Hardware virtual memory address pool */
 	struct gen_pool *virtual_pool;
