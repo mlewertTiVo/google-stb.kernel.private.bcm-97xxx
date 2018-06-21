@@ -119,7 +119,7 @@ struct v3d_page_allocation {
    contiguous kernel low-memory required, therefore preventing allocation
    failures when creating the memory pool.
 */
-#define V3D_HW_VIRTUAL_SPACE_MEMPOOL_NUMBER 6
+#define V3D_HW_VIRTUAL_SPACE_MEMPOOL_NUMBER 3
 
 struct v3d_hw_virtual_mem {
 	/** Hardware virtual memory address pool */

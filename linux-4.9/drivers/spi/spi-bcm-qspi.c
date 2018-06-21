@@ -241,10 +241,11 @@ static inline bool has_bspi(struct bcm_qspi *qspi)
 /* hardware supports fast baud-rate? */
 static inline bool bcm_qspi_has_fastbr(struct bcm_qspi *qspi)
 {
-	if ((qspi->mspi_maj_rev > 1) ||
+	if (!has_bspi(qspi) &&
+	    ((qspi->mspi_maj_rev > 1) ||
 	    ((qspi->mspi_maj_rev == 1) &&
-	     (qspi->mspi_min_rev >= 5)))
-	     return true;
+	     (qspi->mspi_min_rev >= 5))))
+		return true;
 
 	return false;
 }
@@ -1247,8 +1248,35 @@ static void bcm_qspi_hw_uninit(struct bcm_qspi *qspi)
 
 }
 
+struct bcm_qspi_data {
+	bool	has_mspi_rev;
+};
+
+static const struct bcm_qspi_data bcm_qspi_no_rev_data = {
+	.has_mspi_rev	= false,
+};
+
+static const struct bcm_qspi_data bcm_qspi_rev_data = {
+	.has_mspi_rev	= true,
+};
+
 static const struct of_device_id bcm_qspi_of_match[] = {
-	{ .compatible = "brcm,spi-bcm-qspi" },
+	{
+		.compatible = "brcm,spi-bcm7425-qspi",
+		.data = &bcm_qspi_no_rev_data,
+	},
+	{
+		.compatible = "brcm,spi-bcm7429-qspi",
+		.data = &bcm_qspi_no_rev_data,
+	},
+	{
+		.compatible = "brcm,spi-bcm7435-qspi",
+		.data = &bcm_qspi_no_rev_data,
+	},
+	{
+		.compatible = "brcm,spi-bcm-qspi",
+		.data = &bcm_qspi_rev_data,
+	},
 	{},
 };
 MODULE_DEVICE_TABLE(of, bcm_qspi_of_match);
@@ -1256,13 +1284,15 @@ MODULE_DEVICE_TABLE(of, bcm_qspi_of_match);
 int bcm_qspi_probe(struct platform_device *pdev,
 		   struct bcm_qspi_soc_intc *soc_intc)
 {
+	const struct of_device_id *of_id = NULL;
+	const struct bcm_qspi_data *data;
 	struct device *dev = &pdev->dev;
 	struct bcm_qspi *qspi;
 	struct spi_master *master;
 	struct resource *res;
 	int irq, ret = 0, num_ints = 0;
 	u32 val;
-	u32 rev;
+	u32 rev = 0;
 	const char *name = NULL;
 	int num_irqs = ARRAY_SIZE(qspi_irq_tab);
 
@@ -1270,8 +1300,11 @@ int bcm_qspi_probe(struct platform_device *pdev,
 	if (!dev->of_node)
 		return -ENODEV;
 
-	if (!of_match_node(bcm_qspi_of_match, dev->of_node))
+	of_id = of_match_node(bcm_qspi_of_match, dev->of_node);
+	if (!of_id)
 		return -ENODEV;
+
+	data = of_id->data;
 
 	master = spi_alloc_master(dev, sizeof(struct bcm_qspi));
 	if (!master) {
@@ -1309,7 +1342,7 @@ int bcm_qspi_probe(struct platform_device *pdev,
 		qspi->base[MSPI]  = devm_ioremap_resource(dev, res);
 		if (IS_ERR(qspi->base[MSPI])) {
 			ret = PTR_ERR(qspi->base[MSPI]);
-			goto qspi_probe_err;
+			goto qspi_resource_err;
 		}
 	} else {
 		goto qspi_resource_err;
@@ -1320,7 +1353,7 @@ int bcm_qspi_probe(struct platform_device *pdev,
 		qspi->base[BSPI]  = devm_ioremap_resource(dev, res);
 		if (IS_ERR(qspi->base[BSPI])) {
 			ret = PTR_ERR(qspi->base[BSPI]);
-			goto qspi_probe_err;
+			goto qspi_resource_err;
 		}
 		qspi->bspi_mode = true;
 	} else {
@@ -1409,11 +1442,12 @@ int bcm_qspi_probe(struct platform_device *pdev,
 		qspi->base_clk = MSPI_BASE_FREQ;
 	}
 
-	rev = bcm_qspi_read(qspi, MSPI, MSPI_REV);
-
-	/* some older revs do not have a MSPI_REV register */
-	if ((rev & 0xff) == 0xff)
-		rev = 0;
+	if (data->has_mspi_rev) {
+		rev = bcm_qspi_read(qspi, MSPI, MSPI_REV);
+		/* some older revs do not have a MSPI_REV register */
+		if ((rev & 0xff) == 0xff)
+			rev = 0;
+	}
 
 	qspi->mspi_maj_rev = (rev >> 4) & 0xf;
 	qspi->mspi_min_rev = rev & 0xf;
