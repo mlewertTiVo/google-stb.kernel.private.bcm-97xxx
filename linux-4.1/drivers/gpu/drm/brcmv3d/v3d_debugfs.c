@@ -367,6 +367,7 @@ void v3d_debugfs_create_file_entries(struct drm_file *file)
 	if (!fp->debugfs_root) {
 		DRM_ERROR("Cannot create /sys/kernel/debug/dri/%d/%s\n",
 			  minor->index, name);
+		return;
 	}
 
 	/*
