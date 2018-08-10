@@ -296,6 +296,11 @@ static int bcm_sf2_port_setup(struct dsa_switch *ds, int port,
 	reg &= ~P_TXQ_PSM_VDD(port);
 	core_writel(priv, reg, CORE_MEM_PSM_VDD_CTRL);
 
+	/* Enable learning */
+	reg = core_readl(priv, CORE_DIS_LEARN);
+	reg &= ~BIT(port);
+	core_writel(priv, reg, CORE_DIS_LEARN);
+
 	/* Enable Broadcom tags for that port if requested */
 	if (priv->brcm_tag_mask & BIT(port)) {
 		bcm_sf2_brcm_hdr_setup(priv, port);
@@ -379,8 +384,13 @@ static void bcm_sf2_port_disable(struct dsa_switch *ds, int port,
 	struct bcm_sf2_priv *priv = bcm_sf2_to_priv(ds);
 	u32 off, reg;
 
-	if (priv->wol_ports_mask & (1 << port))
+	/* Disable learning while in WoL mode */
+	if (priv->wol_ports_mask & (1 << port)) {
+		reg = core_readl(priv, CORE_DIS_LEARN);
+		reg |= BIT(port);
+		core_writel(priv, reg, CORE_DIS_LEARN);
 		return;
+	}
 
 	if (port == priv->moca_port)
 		bcm_sf2_port_intr_disable(priv, port);
@@ -924,7 +934,7 @@ static void bcm_sf2_sw_get_wol(struct dsa_switch *ds, int port,
 	wol->supported = pwol.supported;
 	memset(&wol->sopass, 0, sizeof(wol->sopass));
 
-	if (pwol.wolopts & WAKE_MAGICSECURE)
+	if (pwol.wolopts & (WAKE_MAGICSECURE | WAKE_FILTER))
 		memcpy(&wol->sopass, pwol.sopass, sizeof(wol->sopass));
 
 	if (priv->wol_ports_mask & (1 << port))

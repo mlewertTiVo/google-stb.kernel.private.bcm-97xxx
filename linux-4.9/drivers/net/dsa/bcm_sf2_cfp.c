@@ -754,7 +754,7 @@ static int bcm_sf2_cfp_rule_set(struct dsa_switch *ds, int port,
 	port_num = fs->ring_cookie / SF2_NUM_EGRESS_QUEUES;
 
 	if (fs->ring_cookie == RX_CLS_FLOW_DISC ||
-	    !(BIT(port_num) & ds->enabled_port_mask) ||
+	    !(BIT(port_num) & (ds->enabled_port_mask | ds->cpu_port_mask)) ||
 	    port_num >= priv->hw_params.num_ports)
 		return -EINVAL;
 	/*

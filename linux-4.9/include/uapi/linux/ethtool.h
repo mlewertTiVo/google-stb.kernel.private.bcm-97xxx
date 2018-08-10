@@ -200,7 +200,7 @@ struct ethtool_drvinfo {
  * @supported: Bitmask of %WAKE_* flags for supported Wake-On-Lan modes.
  *	Read-only.
  * @wolopts: Bitmask of %WAKE_* flags for enabled Wake-On-Lan modes.
- * @sopass: SecureOn(tm) password; meaningful only if %WAKE_MAGICSECURE
+ * @sopass: SecureOn(tm) password; meaningful only if %WAKE_MAGICSECURE or %WAKE_FILTER
  *	is set in @wolopts.
  */
 struct ethtool_wolinfo {
@@ -1545,6 +1545,7 @@ static inline int ethtool_validate_duplex(__u8 duplex)
 #define WAKE_ARP		(1 << 4)
 #define WAKE_MAGIC		(1 << 5)
 #define WAKE_MAGICSECURE	(1 << 6) /* only meaningful if WAKE_MAGIC */
+#define WAKE_FILTER		(1 << 7)
 
 /* L2-L4 network traffic flow types */
 #define	TCP_V4_FLOW	0x01	/* hash or spec (tcp_ip4_spec) */

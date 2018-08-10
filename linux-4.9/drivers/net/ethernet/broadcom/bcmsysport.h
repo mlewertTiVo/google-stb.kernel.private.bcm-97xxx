@@ -11,6 +11,8 @@
 #ifndef __BCM_SYSPORT_H
 #define __BCM_SYSPORT_H
 
+#include <linux/bitmap.h>
+#include <linux/ethtool.h>
 #include <linux/if_vlan.h>
 #include <linux/net_dim.h>
 
@@ -155,13 +157,17 @@ struct bcm_rsb {
 #define  RXCHK_PARSE_AUTH		(1 << 22)
 
 #define RXCHK_BRCM_TAG0			0x04
-#define RXCHK_BRCM_TAG(i)		((i) * RXCHK_BRCM_TAG0)
+#define RXCHK_BRCM_TAG(i)		((i) * 0x4 + RXCHK_BRCM_TAG0)
 #define RXCHK_BRCM_TAG0_MASK		0x24
-#define RXCHK_BRCM_TAG_MASK(i)		((i) * RXCHK_BRCM_TAG0_MASK)
+#define RXCHK_BRCM_TAG_MASK(i)		((i) * 0x4 + RXCHK_BRCM_TAG0_MASK)
 #define RXCHK_BRCM_TAG_MATCH_STATUS	0x44
 #define RXCHK_ETHERTYPE			0x48
 #define RXCHK_BAD_CSUM_CNTR		0x4C
 #define RXCHK_OTHER_DISC_CNTR		0x50
+
+#define RXCHK_BRCM_TAG_MAX		8
+#define RXCHK_BRCM_TAG_CID_SHIFT	16
+#define RXCHK_BRCM_TAG_CID_MASK		0xff
 
 /* TXCHCK offsets and defines */
 #define SYS_PORT_TXCHK_OFFSET		0x380
@@ -185,6 +191,7 @@ struct bcm_rsb {
 #define  RBUF_RSB_SWAP0			(1 << 22)
 #define  RBUF_RSB_SWAP1			(1 << 23)
 #define  RBUF_ACPI_EN			(1 << 23)
+#define  RBUF_ACPI_EN_LITE		(1 << 24)
 
 #define RBUF_PKT_RDY_THRESH		0x04
 
@@ -523,6 +530,8 @@ struct dma_desc {
 
 #define WORDS_PER_DESC			(sizeof(struct dma_desc) / sizeof(u32))
 
+#define WAKE_FILTER_BITS		(SOPASS_MAX * BITS_PER_BYTE)
+
 /* Rx/Tx common counter group.*/
 struct bcm_sysport_pkt_counters {
 	u32	cnt_64;		/* RO Received/Transmited 64 bytes packet */
@@ -754,12 +763,14 @@ struct bcm_sysport_priv {
 	u32			wolopts;
 	unsigned int		wol_irq_disabled:1;
 	struct clk		*clk;
+	struct clk		*clk_wol;
 
 	/* MIB related fields */
 	struct bcm_sysport_mib	mib;
 
 	/* Ethtool */
 	u32			msg_enable;
+	DECLARE_BITMAP(filters, SOPASS_MAX * BITS_PER_BYTE);
 
 	/* netdev notifier to map switch port queues */
 	struct notifier_block	queue_nb;
