@@ -12,7 +12,6 @@
 #define __BCM_SYSPORT_H
 
 #include <linux/bitmap.h>
-#include <linux/ethtool.h>
 #include <linux/if_vlan.h>
 #include <linux/net_dim.h>
 
@@ -530,8 +529,6 @@ struct dma_desc {
 
 #define WORDS_PER_DESC			(sizeof(struct dma_desc) / sizeof(u32))
 
-#define WAKE_FILTER_BITS		(SOPASS_MAX * BITS_PER_BYTE)
-
 /* Rx/Tx common counter group.*/
 struct bcm_sysport_pkt_counters {
 	u32	cnt_64;		/* RO Received/Transmited 64 bytes packet */
@@ -763,14 +760,14 @@ struct bcm_sysport_priv {
 	u32			wolopts;
 	unsigned int		wol_irq_disabled:1;
 	struct clk		*clk;
-	struct clk		*clk_wol;
+	struct clk		*wol_clk;
 
 	/* MIB related fields */
 	struct bcm_sysport_mib	mib;
 
 	/* Ethtool */
 	u32			msg_enable;
-	DECLARE_BITMAP(filters, SOPASS_MAX * BITS_PER_BYTE);
+	DECLARE_BITMAP(filters, RXCHK_BRCM_TAG_MAX);
 
 	/* netdev notifier to map switch port queues */
 	struct notifier_block	queue_nb;

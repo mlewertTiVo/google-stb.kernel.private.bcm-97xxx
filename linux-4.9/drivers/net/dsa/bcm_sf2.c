@@ -934,7 +934,7 @@ static void bcm_sf2_sw_get_wol(struct dsa_switch *ds, int port,
 	wol->supported = pwol.supported;
 	memset(&wol->sopass, 0, sizeof(wol->sopass));
 
-	if (pwol.wolopts & (WAKE_MAGICSECURE | WAKE_FILTER))
+	if (pwol.wolopts & WAKE_MAGICSECURE)
 		memcpy(&wol->sopass, pwol.sopass, sizeof(wol->sopass));
 
 	if (priv->wol_ports_mask & (1 << port))

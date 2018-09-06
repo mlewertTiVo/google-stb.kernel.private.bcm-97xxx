@@ -116,7 +116,8 @@ dtb-$(CONFIG_ARCH_BERLIN) += \
 	berlin2cd-google-chromecast.dtb \
 	berlin2q-marvell-dmp.dtb
 dtb-$(CONFIG_ARCH_BRCMSTB) += \
-	bcm7445-bcm97445svmb.dtb
+	bcm7445-bcm97445svmb.dtb \
+	brcmstb-dummy.dtb
 dtb-$(CONFIG_ARCH_CLPS711X) += \
 	ep7211-edb7211.dtb
 dtb-$(CONFIG_ARCH_DAVINCI) += \

@@ -1,0 +1,11 @@
+/dts-v1/;
+
+/ {
+	model = "Broadcom STB (DUMMY)";
+	compatible = "brcm,brcmstb";
+	#address-cells = <0x1>;
+	#size-cells = <0x1>;
+	chosen { };
+	aliases { };
+	memory { device_type = "memory"; reg = <0 0>; };
+};

@@ -488,19 +488,15 @@ static void bcm_sysport_get_wol(struct net_device *dev,
 	wol->supported = WAKE_MAGIC | WAKE_MAGICSECURE | WAKE_FILTER;
 	wol->wolopts = priv->wolopts;
 
-	if (priv->wolopts & WAKE_MAGICSECURE) {
-		/* Return the programmed SecureOn password */
-		reg = umac_readl(priv, UMAC_PSW_MS);
-		put_unaligned_be16(reg, &wol->sopass[0]);
-		reg = umac_readl(priv, UMAC_PSW_LS);
-		put_unaligned_be32(reg, &wol->sopass[2]);
-	}
+	if (!(priv->wolopts & WAKE_MAGICSECURE))
+		return;
 
-	if (priv->wolopts & WAKE_FILTER)
-		bitmap_copy((unsigned long *)wol->sopass, priv->filters,
-			    WAKE_FILTER_BITS);
+	/* Return the programmed SecureOn password */
+	reg = umac_readl(priv, UMAC_PSW_MS);
+	put_unaligned_be16(reg, &wol->sopass[0]);
+	reg = umac_readl(priv, UMAC_PSW_LS);
+	put_unaligned_be32(reg, &wol->sopass[2]);
 }
-
 
 static int bcm_sysport_set_wol(struct net_device *dev,
 			       struct ethtool_wolinfo *wol)
@@ -508,8 +504,6 @@ static int bcm_sysport_set_wol(struct net_device *dev,
 	struct bcm_sysport_priv *priv = netdev_priv(dev);
 	struct device *kdev = &priv->pdev->dev;
 	u32 supported = WAKE_MAGIC | WAKE_MAGICSECURE | WAKE_FILTER;
-	unsigned int index, i = 0;
-	u32 reg;
 
 	if (!device_can_wakeup(kdev))
 		return -ENOTSUPP;
@@ -523,32 +517,6 @@ static int bcm_sysport_set_wol(struct net_device *dev,
 			    UMAC_PSW_MS);
 		umac_writel(priv, get_unaligned_be32(&wol->sopass[2]),
 			    UMAC_PSW_LS);
-	}
-
-	/* We support matching up to 8 filters only */
-	if (wol->wolopts & WAKE_FILTER) {
-		bitmap_copy(priv->filters, (unsigned long *)wol->sopass,
-			    WAKE_FILTER_BITS);
-
-		if (bitmap_weight(priv->filters, WAKE_FILTER_BITS) >
-				  RXCHK_BRCM_TAG_MAX) {
-			bitmap_zero(priv->filters, WAKE_FILTER_BITS);
-			return -ENOSPC;
-		}
-
-		if (bitmap_weight(priv->filters, WAKE_FILTER_BITS) == 0)
-			return -EINVAL;
-
-		for_each_set_bit(index, priv->filters, WAKE_FILTER_BITS) {
-			/* Write the index we want to match within the CID field */
-			reg = rxchk_readl(priv, RXCHK_BRCM_TAG(i));
-			reg &= ~(RXCHK_BRCM_TAG_CID_MASK <<
-				 RXCHK_BRCM_TAG_CID_SHIFT);
-			reg |= index << RXCHK_BRCM_TAG_CID_SHIFT;
-			rxchk_writel(priv, reg, RXCHK_BRCM_TAG(i));
-			rxchk_writel(priv, 0xff00ffff, RXCHK_BRCM_TAG_MASK(i));
-			i++;
-		}
 	}
 
 	/* Flag the device and relevant IRQ as wakeup capable */
@@ -2114,6 +2082,132 @@ static int bcm_sysport_stop(struct net_device *dev)
 	return 0;
 }
 
+static int bcm_sysport_rule_find(struct bcm_sysport_priv *priv,
+				 u64 location)
+{
+	unsigned int index;
+	u32 reg;
+
+	for_each_set_bit(index, priv->filters, RXCHK_BRCM_TAG_MAX) {
+		reg = rxchk_readl(priv, RXCHK_BRCM_TAG(index));
+		reg >>= RXCHK_BRCM_TAG_CID_SHIFT;
+		reg &= RXCHK_BRCM_TAG_CID_MASK;
+		if (reg == location)
+			return index;
+	}
+
+	return -EINVAL;
+}
+
+static int bcm_sysport_rule_get(struct bcm_sysport_priv *priv,
+				struct ethtool_rxnfc *nfc)
+{
+	int index;
+
+	/* This is not a rule that we know about */
+	index = bcm_sysport_rule_find(priv, nfc->fs.location);
+	if (index < 0)
+		return -EOPNOTSUPP;
+
+	nfc->fs.ring_cookie = RX_CLS_FLOW_WAKE;
+
+	return 0;
+}
+
+static int bcm_sysport_rule_set(struct bcm_sysport_priv *priv,
+				struct ethtool_rxnfc *nfc)
+{
+	unsigned int index;
+	u32 reg;
+
+	/* We cannot match locations greater than what the classification ID
+	 * permits (256 entries)
+	 */
+	if (nfc->fs.location > RXCHK_BRCM_TAG_CID_MASK)
+		return -E2BIG;
+
+	/* We cannot support flows that are not destined for a wake-up */
+	if (nfc->fs.ring_cookie != RX_CLS_FLOW_WAKE)
+		return -EOPNOTSUPP;
+
+	/* All filters are already in use, we cannot match more rules */
+	if (bitmap_weight(priv->filters, RXCHK_BRCM_TAG_MAX) ==
+	    RXCHK_BRCM_TAG_MAX)
+		return -ENOSPC;
+
+	index = find_first_zero_bit(priv->filters, RXCHK_BRCM_TAG_MAX);
+	if (index > RXCHK_BRCM_TAG_MAX)
+		return -ENOSPC;
+
+	/* Location is the classification ID, and index is the position
+	 * within one of our 8 possible filters to be programmed
+	 */
+	reg = rxchk_readl(priv, RXCHK_BRCM_TAG(index));
+	reg &= ~(RXCHK_BRCM_TAG_CID_MASK << RXCHK_BRCM_TAG_CID_SHIFT);
+	reg |= nfc->fs.location << RXCHK_BRCM_TAG_CID_SHIFT;
+	rxchk_writel(priv, reg, RXCHK_BRCM_TAG(index));
+	rxchk_writel(priv, 0xff00ffff, RXCHK_BRCM_TAG_MASK(index));
+
+	set_bit(index, priv->filters);
+
+	return 0;
+}
+
+static int bcm_sysport_rule_del(struct bcm_sysport_priv *priv,
+				u64 location)
+{
+	int index;
+
+	/* This is not a rule that we know about */
+	index = bcm_sysport_rule_find(priv, location);
+	if (index < 0)
+		return -EOPNOTSUPP;
+
+	/* No need to disable this filter if it was enabled, this will
+	 * be taken care of during suspend time by bcm_sysport_suspend_to_wol
+	 */
+	clear_bit(index, priv->filters);
+
+	return 0;
+}
+
+static int bcm_sysport_get_rxnfc(struct net_device *dev,
+				 struct ethtool_rxnfc *nfc, u32 *rule_locs)
+{
+	struct bcm_sysport_priv *priv = netdev_priv(dev);
+	int ret = -EOPNOTSUPP;
+
+	switch (nfc->cmd) {
+	case ETHTOOL_GRXCLSRULE:
+		ret = bcm_sysport_rule_get(priv, nfc);
+		break;
+	default:
+		break;
+	}
+
+	return ret;
+}
+
+static int bcm_sysport_set_rxnfc(struct net_device *dev,
+				 struct ethtool_rxnfc *nfc)
+{
+	struct bcm_sysport_priv *priv = netdev_priv(dev);
+	int ret = -EOPNOTSUPP;
+
+	switch (nfc->cmd) {
+	case ETHTOOL_SRXCLSRLINS:
+		ret = bcm_sysport_rule_set(priv, nfc);
+		break;
+	case ETHTOOL_SRXCLSRLDEL:
+		ret = bcm_sysport_rule_del(priv, nfc->fs.location);
+		break;
+	default:
+		break;
+	}
+
+	return ret;
+}
+
 static const struct ethtool_ops bcm_sysport_ethtool_ops = {
 	.get_drvinfo		= bcm_sysport_get_drvinfo,
 	.get_msglevel		= bcm_sysport_get_msglvl,
@@ -2128,6 +2222,8 @@ static const struct ethtool_ops bcm_sysport_ethtool_ops = {
 	.set_coalesce		= bcm_sysport_set_coalesce,
 	.get_link_ksettings     = phy_ethtool_get_link_ksettings,
 	.set_link_ksettings     = phy_ethtool_set_link_ksettings,
+	.get_rxnfc		= bcm_sysport_get_rxnfc,
+	.set_rxnfc		= bcm_sysport_set_rxnfc,
 };
 
 static u16 bcm_sysport_select_queue(struct net_device *dev, struct sk_buff *skb,
@@ -2374,11 +2470,9 @@ static int bcm_sysport_probe(struct platform_device *pdev)
 		priv->clk = NULL;
 	}
 
-	priv->clk_wol = devm_clk_get(&pdev->dev, "sw_sysportwol");
-	if (IS_ERR(priv->clk_wol)) {
-		dev_warn(&pdev->dev, "failed to request WOL clock\n");
-		priv->clk_wol = NULL;
-	}
+	priv->wol_clk = devm_clk_get(&pdev->dev, "sw_sysportwol");
+	if (IS_ERR(priv->wol_clk))
+		priv->wol_clk = NULL;
 
 	/* Set the needed headroom once and for all */
 	BUILD_BUG_ON(sizeof(struct bcm_tsb) != 8);
@@ -2474,7 +2568,7 @@ static int bcm_sysport_suspend_to_wol(struct bcm_sysport_priv *priv)
 		reg = rxchk_readl(priv, RXCHK_CONTROL);
 		reg &= ~(RXCHK_BRCM_TAG_MATCH_MASK <<
 			 RXCHK_BRCM_TAG_MATCH_SHIFT);
-		for_each_set_bit(index, priv->filters, WAKE_FILTER_BITS) {
+		for_each_set_bit(index, priv->filters, RXCHK_BRCM_TAG_MAX) {
 			reg |= BIT(RXCHK_BRCM_TAG_MATCH_SHIFT + i);
 			i++;
 		}
@@ -2566,8 +2660,8 @@ static int bcm_sysport_suspend(struct device *d)
 
 	/* Get prepared for Wake-on-LAN */
 	if (device_may_wakeup(d) && priv->wolopts) {
+		clk_prepare_enable(priv->wol_clk);
 		ret = bcm_sysport_suspend_to_wol(priv);
-		clk_prepare_enable(priv->clk_wol);
 	}
 
 	clk_disable_unprepare(priv->clk);
@@ -2588,7 +2682,7 @@ static int bcm_sysport_resume(struct device *d)
 
 	clk_prepare_enable(priv->clk);
 	if (priv->wolopts)
-		clk_disable_unprepare(priv->clk_wol);
+		clk_disable_unprepare(priv->wol_clk);
 
 	umac_reset(priv);
 
