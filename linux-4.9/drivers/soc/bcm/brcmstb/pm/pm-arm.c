@@ -1331,8 +1331,10 @@ static void __iomem *brcmstb_ioremap_match(const struct of_device_id *matches,
 static int brcmstb_pm_panic_notify(struct notifier_block *nb,
 		unsigned long action, void *data)
 {
+#if 0
 	__raw_writel(BRCMSTB_PANIC_MAGIC,
 		ctrl.aon_sram + AON_REG_PANIC);
+#endif
 
 	return NOTIFY_DONE;
 }
