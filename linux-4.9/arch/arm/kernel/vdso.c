@@ -85,8 +85,16 @@ static bool __init cntvct_functional(void)
 	 * this.
 	 */
 	np = of_find_compatible_node(NULL, NULL, "arm,armv7-timer");
-	if (!np)
+	if (!np) {
+		/* Check for armv8 arch timer incase we're running this kernel
+		 * on an armv8 SoC
+		 */
+		of_node_put(np);
+		np = of_find_compatible_node(NULL, NULL, "arm,armv8-timer");
+		if (np)
+			ret = true;
 		goto out_put;
+	}
 
 	if (of_property_read_bool(np, "arm,cpu-registers-not-fw-configured"))
 		goto out_put;
